@@ -34,6 +34,7 @@ import { initAuth, googleSignIn, logoutGoogle } from '../lib/googleApi';
 import useKeyHex from '../hooks/useKeyHex';
 import { compressAndResizeImage } from '../lib/image';
 import { storageHelper } from '../lib/storage';
+import { BASE_URL } from '../lib/apiClient';
 
 interface SecurityHubProps {
   pairingCode: string;
@@ -887,11 +888,18 @@ export default function SecurityHub({
                   storageHelper.setItem(`storage_method_${activePartner}`, next);
                   
                   // Update storage method on server
-                  fetch('/api/storage-method', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ partnerId: activePartner, storageMethod: next })
-                  });
+                  if (onUpdateStorageMethod) {
+                    onUpdateStorageMethod(activePartner, next);
+                  } else {
+                    fetch(`${BASE_URL}/api/storage-method`, {
+                      method: 'POST',
+                      headers: { 
+                        'Content-Type': 'application/json',
+                        'X-Pairing-Code': pairingCode
+                      },
+                      body: JSON.stringify({ partnerId: activePartner, storageMethod: next })
+                    }).catch(err => console.error(err));
+                  }
 
                   alert(`Đã đổi phương thức lưu trữ thành: ${next === 'googledrive' ? 'Google Drive Cloud Sync' : 'Serverless P2P'}`);
                   window.location.reload();

@@ -35,10 +35,14 @@ service cloud.firestore {
     // 1. Users Collection
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (
+      allow create: if isSignedIn() && userId == request.auth.uid;
+      allow update: if isSignedIn() && (
         userId == request.auth.uid ||
-        (incoming().diff(existing()).affectedKeys().hasOnly(['coupleId']))
+        (incoming().nickname == existing().nickname &&
+         incoming().avatar == existing().avatar &&
+         incoming().pairingCode == existing().pairingCode)
       );
+      allow delete: if isSignedIn() && userId == request.auth.uid;
     }
 
     // 2. Couples Collection

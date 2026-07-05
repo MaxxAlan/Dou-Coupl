@@ -43,7 +43,7 @@ import {
 import { Partner, EncryptedMessage, EncryptedPhoto, Reminder } from './types';
 import { deriveSymmetricKey, encryptData } from './lib/crypto';
 import { auth, db } from './lib/firebase';
-import { apiClient } from './lib/apiClient';
+import { apiClient, BASE_URL } from './lib/apiClient';
 import { storageHelper } from './lib/storage';
 import { uploadFileToGoogleDrive } from './lib/googleApi';
 
@@ -263,7 +263,7 @@ export default function App() {
     let eventSource: EventSource | null = null;
 
     const connectSSE = () => {
-      eventSource = new EventSource(`/api/events?pairingCode=${coupleData.pairingCode}`);
+      eventSource = new EventSource(`${BASE_URL}/api/events?pairingCode=${coupleData.pairingCode}`);
 
       eventSource.onopen = () => {
         console.log('[SSE] Connection established. Performing sync check...');

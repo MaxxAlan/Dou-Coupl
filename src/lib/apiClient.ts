@@ -1,7 +1,7 @@
 // Client API client for communicating with the local Node/Express backend.
 // Implements unified error handling and authentication header injection.
 
-const BASE_URL = 'https://dou-coupl.onrender.com'; // Relative path because of Vite server proxying/production serving
+export const BASE_URL = 'https://dou-coupl.onrender.com'; // Relative path because of Vite server proxying/production serving
 
 async function request(path: string, options: RequestInit = {}): Promise<any> {
   const headers = new Headers(options.headers || {});

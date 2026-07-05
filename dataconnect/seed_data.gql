@@ -1,0 +1,31 @@
+mutation CreateSeedData @transaction {
+  user_insertMany(data: [
+    {
+      id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      displayName: "Alice",
+      email: "alice@example.com"
+    },
+    {
+      id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12",
+      displayName: "Bob",
+      email: "bob@example.com"
+    }
+  ])
+  couple_insertMany(data: [
+    {
+      id: "b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      partner1Id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      partner2Id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12",
+      createdAt: "2023-01-01T00:00:00Z"
+    }
+  ])
+  memory_insertMany(data: [
+    {
+      id: "c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      coupleId: "b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      type: "text",
+      content: "First date at the park.",
+      createdAt: "2023-01-02T10:00:00Z"
+    }
+  ])
+}

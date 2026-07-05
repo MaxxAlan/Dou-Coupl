@@ -1,0 +1,35 @@
+type User @table {
+  displayName: String!
+  email: String!
+  avatarUrl: String
+  bio: String
+}
+
+type Couple @table {
+  partner1: User!
+  partner2: User!
+  anniversaryDate: Date
+  themeSetting: String
+  createdAt: Timestamp!
+}
+
+type Memory @table {
+  type: String! # "text" hoặc "photo"
+  content: String!
+  createdAt: Timestamp!
+  couple: Couple!
+}
+
+type Message @table {
+  sender: User!
+  text: String!
+  createdAt: Timestamp!
+  couple: Couple!
+}
+
+type Reminder @table {
+  title: String!
+  eventDate: Date!
+  isRecurring: Boolean!
+  couple: Couple!
+}

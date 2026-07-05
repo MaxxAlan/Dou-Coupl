@@ -1,0 +1,41 @@
+mutation CreateCouple($partner1Id: UUID!, $partner2Id: UUID!, $theme: String) @auth(level: USER) {
+  couple_insert(data: {
+    partner1Id: $partner1Id,
+    partner2Id: $partner2Id,
+    themeSetting: $theme,
+    createdAt_expr: "request.time"
+  })
+}
+
+mutation SendMessage($coupleId: UUID!, $text: String!) @auth(level: USER) {
+  message_insert(data: {
+    coupleId: $coupleId,
+    senderId_expr: "auth.uid",
+    text: $text,
+    createdAt_expr: "request.time"
+  })
+}
+
+query GetMyMessages($coupleId: UUID!) @auth(level: USER) {
+  messages(where: {coupleId: {eq: $coupleId}}, orderBy: [{createdAt: DESC}]) {
+    text
+    createdAt
+    sender {
+      displayName
+    }
+  }
+}
+
+query GetUpcomingReminders($coupleId: UUID!) @auth(level: USER) {
+  reminders(
+    where: {
+      coupleId: {eq: $coupleId},
+      eventDate: {ge_date: {today: true}}
+    },
+    orderBy: [{eventDate: ASC}]
+  ) {
+    title
+    eventDate
+    isRecurring
+  }
+}

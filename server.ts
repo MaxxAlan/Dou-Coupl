@@ -20,6 +20,7 @@ const logger = pino({
 });
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT) || 3000;
 const DB_FILE = path.join(process.cwd(), 'db.json');
 const dbMutex = new Mutex();

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Heart, 
@@ -46,6 +46,14 @@ import { auth, db } from './lib/firebase';
 import { apiClient, BASE_URL } from './lib/apiClient';
 import { storageHelper } from './lib/storage';
 import { uploadFileToGoogleDrive } from './lib/googleApi';
+import { useP2PChannel } from './hooks/useP2PChannel';
+import type { P2PDataMessage, P2PStatus } from './lib/p2pChannel';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
+import OfflineScreen from './components/OfflineScreen';
+import themeMusicSrc from '@/assets/audio/DaNhuTa.mp3';
+import { useThemeMusic } from './hooks/useThemeMusic';
+import { I18nProvider } from './lib/i18n';
+import { localeData } from './locales';
 
 // Import Custom Components
 import PasscodeLock from './components/PasscodeLock';
@@ -116,6 +124,58 @@ export default function App() {
   const [callType, setCallType] = useState<'voice' | 'video'>('voice');
   const [incomingCallSignal, setIncomingCallSignal] = useState<any>(null);
 
+  const online = useOnlineStatus();
+  const themeMusic = useThemeMusic(themeMusicSrc);
+
+  // P2P Data Channel State
+  const [p2pStatus, setP2pStatus] = useState<P2PStatus>('idle');
+
+  const p2pChannel = useP2PChannel({
+    pairingCode: coupleData?.pairingCode || '',
+    activePartner,
+    recipientId: activePartner === 'A' ? 'B' : 'A',
+    onMessage: useCallback((data: P2PDataMessage) => {
+      if (data.type === 'text') {
+        let payload = data.payload;
+        let iv = 'p2p-iv';
+        if (typeof payload === 'string') {
+          try {
+            const parsed = JSON.parse(payload);
+            if (parsed.ciphertext) { payload = parsed.ciphertext; iv = parsed.iv || 'p2p-iv'; }
+          } catch {}
+        }
+        const newMsg: EncryptedMessage = {
+          id: data.messageId,
+          senderId: data.senderId,
+          ciphertext: payload,
+          iv,
+          timestamp: data.timestamp,
+          type: 'text'
+        };
+        setMessages(prev => {
+          if (prev.some(m => m.id === newMsg.id)) return prev;
+          return [...prev, newMsg];
+        });
+      } else if (data.type === 'image') {
+        const newPhoto: EncryptedPhoto = {
+          id: data.messageId,
+          senderId: data.senderId,
+          ciphertext: data.payload,
+          iv: 'p2p-iv',
+          timestamp: data.timestamp,
+          isViewOnce: false
+        };
+        setPhotos(prev => {
+          if (prev.some(p => p.id === newPhoto.id)) return prev;
+          return [newPhoto, ...prev];
+        });
+      }
+    }, []),
+    onStatusChange: useCallback((status: P2PStatus) => {
+      setP2pStatus(status);
+    }, [])
+  });
+
   // Reactive UI Notification Banner
   const [notification, setNotification] = useState<{ title: string; body: string; type: string } | null>(null);
 
@@ -125,6 +185,17 @@ export default function App() {
       setNotification(null);
     }, 4000);
   };
+
+  // Auto-start P2P host when storage method is P2P and partner A
+  useEffect(() => {
+    const method = storageHelper.getItem<string>(`storage_method_${activePartner}`, 'p2p');
+    if (coupleData?.pairingCode && method === 'p2p' && p2pStatus === 'idle') {
+      p2pChannel.setIsEnabled(true);
+      if (activePartner === 'A') {
+        p2pChannel.startHost();
+      }
+    }
+  }, [coupleData?.pairingCode, activePartner, p2pStatus]);
 
   // --- REST DATABASE SYNC ---
 
@@ -150,13 +221,21 @@ export default function App() {
     }
   };
 
-  // Align server pairing code on first connection (no hardcoded fallback)
+  // Align server pairing code on first connection
   const alignServerPairingCode = async (userCode: string) => {
     try {
       await apiClient.getDatabaseState(userCode);
       console.log('[E2EE] Express server is aligned with user pairing code.');
     } catch (err) {
-      console.warn('[E2EE] Server pairing code mismatch or server unreachable. Data features may be limited until server is configured.', err);
+      console.warn('[E2EE] Server pairing code mismatch, attempting to auto-sync...');
+      try {
+        const defaultCode = 'DUO-2026-LOVE';
+        await apiClient.updatePairingCode(defaultCode, userCode);
+        console.log('[E2EE] Server pairing code updated successfully.');
+        await loadDatabase();
+      } catch (syncErr) {
+        console.warn('[E2EE] Could not auto-sync server pairing code. Data features may be limited.', syncErr);
+      }
     }
   };
 
@@ -346,7 +425,6 @@ export default function App() {
               setSpecialAnniversaries(data.specialAnniversaries || []);
               break;
             case 'CALL_SIGNAL':
-              // Filter signal meant for this device (Component 2)
               if (data.recipientId === activePartner) {
                 if (data.signal.type === 'offer') {
                   setIncomingCallSignal(data.signal);
@@ -357,6 +435,8 @@ export default function App() {
                   setIsCallActive(false);
                   setIsCallIncoming(false);
                   setIncomingCallSignal(null);
+                } else if (data.signal.type && data.signal.type.startsWith('p2p_')) {
+                  p2pChannel.handleSignal(data.signal);
                 } else {
                   const webrtcEvent = new CustomEvent('webrtc-signal', { detail: { signal: data.signal } });
                   window.dispatchEvent(webrtcEvent);
@@ -537,10 +617,15 @@ export default function App() {
 
   const handleSendMessage = async (ciphertext: string, iv: string) => {
     if (!coupleData?.pairingCode) return;
+    if (p2pStatus === 'connected') {
+      p2pChannel.sendText(JSON.stringify({ ciphertext, iv }));
+      return;
+    }
     try {
       await apiClient.postMessage(coupleData.pairingCode, activePartner, ciphertext, iv);
     } catch (e) {
       console.error('Failed to send message:', e);
+      triggerNotification('Lỗi gửi tin nhắn', 'Không thể gửi tin nhắn, vui lòng thử lại sau.', 'error');
     }
   };
 
@@ -552,6 +637,11 @@ export default function App() {
     captionIv?: string
   ) => {
     if (!coupleData?.pairingCode) return;
+    if (p2pStatus === 'connected') {
+      const payload = JSON.stringify({ ciphertext, iv, captionCiphertext, captionIv, isViewOnce });
+      p2pChannel.sendImage(payload);
+      return;
+    }
     try {
       await apiClient.uploadPhoto(coupleData.pairingCode, activePartner, ciphertext, iv, captionCiphertext, captionIv, isViewOnce);
     } catch (e) {
@@ -1108,6 +1198,7 @@ export default function App() {
                 setIncomingCallSignal(null);
                 setIsCallActive(true);
               }}
+              p2pStatus={p2pStatus}
             />
           )}
           {activeTab === 'album' && (
@@ -1147,6 +1238,9 @@ export default function App() {
               onUpdateStorageMethod={handleUpdateStorageMethod}
               storageMethodA={coupleData?.storageMethodA}
               storageMethodB={coupleData?.storageMethodB}
+              p2pStatus={p2pStatus}
+              onStartP2PHost={() => p2pChannel.startHost()}
+              onStopP2P={() => p2pChannel.closeChannel()}
             />
           )}
         </div>
@@ -1183,6 +1277,7 @@ export default function App() {
   };
 
   return (
+    <I18nProvider localeData={localeData}>
     <div className="min-h-screen bg-[#080808] font-sans flex flex-col text-slate-100 overflow-hidden relative select-none">
       
       {/* Background decorations */}
@@ -1287,6 +1382,16 @@ export default function App() {
         />
       )}
 
+      {/* Offline Screen — replaces app when disconnected */}
+      {!online && coupleData && !isCallActive && (
+        <OfflineScreen
+          onRetry={() => window.location.reload()}
+          musicPlaying={themeMusic.playing}
+          onToggleMusic={themeMusic.toggle}
+        />
+      )}
+
     </div>
+    </I18nProvider>
   );
 }

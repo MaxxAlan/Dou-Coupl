@@ -27,7 +27,12 @@ import {
   MessageSquare,
   Calendar,
   Volume2,
-  Settings2
+  Settings2,
+  Wifi,
+  WifiOff,
+  Server,
+  Radio,
+  Globe
 } from 'lucide-react';
 import { Partner } from '../types';
 import { initAuth, googleSignIn, logoutGoogle } from '../lib/googleApi';
@@ -35,6 +40,8 @@ import useKeyHex from '../hooks/useKeyHex';
 import { compressAndResizeImage } from '../lib/image';
 import { storageHelper } from '../lib/storage';
 import { BASE_URL } from '../lib/apiClient';
+import type { P2PStatus } from '../lib/p2pChannel';
+import LanguageSwitcher from './LanguageSwitcher';
 
 interface SecurityHubProps {
   pairingCode: string;
@@ -50,6 +57,9 @@ interface SecurityHubProps {
   onUpdateStorageMethod?: (partnerId: 'A' | 'B', storageMethod: 'p2p' | 'googledrive') => void;
   storageMethodA?: 'p2p' | 'googledrive';
   storageMethodB?: 'p2p' | 'googledrive';
+  p2pStatus?: P2PStatus;
+  onStartP2PHost?: () => void;
+  onStopP2P?: () => void;
 }
 
 const PRESET_AVATARS = [
@@ -83,7 +93,10 @@ export default function SecurityHub({
   onResetDatabase,
   onUpdateStorageMethod,
   storageMethodA,
-  storageMethodB
+  storageMethodB,
+  p2pStatus,
+  onStartP2PHost,
+  onStopP2P
 }: SecurityHubProps) {
   const keyHex = useKeyHex(symmetricKey);
   const [diagnosticLogs, setDiagnosticLogs] = useState<string[]>([]);
@@ -402,6 +415,17 @@ export default function SecurityHub({
             </div>
           </div>
           <span className="text-[8px] bg-black px-2 py-1 rounded border border-white/5 text-slate-400 font-mono">CLIENT-ONLY</span>
+        </div>
+
+        {/* LANGUAGE SETTINGS */}
+        <div className="space-y-2">
+          <h3 className="text-[9px] font-mono text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+            <Globe className="w-3.5 h-3.5 text-[#c5a059]" />
+            <span>NGÔN NGỮ & HIỂN THỊ</span>
+          </h3>
+          <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-3">
+            <LanguageSwitcher />
+          </div>
         </div>
 
         {/* ACCOUNT SETTINGS SECTION (Edit Name, Avatar & Switch Identity info) */}
@@ -863,16 +887,59 @@ export default function SecurityHub({
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="bg-black/20 border border-white/5 rounded-xl p-3 space-y-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#c5a059] animate-ping" />
-                    <span className="text-[10px] text-slate-300 font-medium">Bảo mật ngang hàng thời gian thực</span>
+                <div className="bg-black/20 border border-white/5 rounded-xl p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {p2pStatus === 'connected' ? (
+                        <Wifi className="w-4 h-4 text-emerald-400" />
+                      ) : p2pStatus === 'connecting' || p2pStatus === 'host_waiting' ? (
+                        <Radio className="w-4 h-4 text-amber-400 animate-pulse" />
+                      ) : (
+                        <WifiOff className="w-4 h-4 text-slate-500" />
+                      )}
+                      <span className="text-[10px] text-slate-300 font-medium">
+                        {p2pStatus === 'connected' ? 'P2P Đã kết nối' :
+                         p2pStatus === 'connecting' ? 'P2P Đang kết nối...' :
+                         p2pStatus === 'host_waiting' ? 'P2P Chờ đối tác...' :
+                         'P2P Chưa kết nối'}
+                      </span>
+                    </div>
+                    <span className={`text-[8px] font-bold uppercase py-0.5 px-2 rounded-full border ${
+                      p2pStatus === 'connected'
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        : p2pStatus === 'connecting' || p2pStatus === 'host_waiting'
+                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                        : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                    }`}>
+                      {p2pStatus === 'connected' ? 'Online' :
+                       p2pStatus === 'connecting' || p2pStatus === 'host_waiting' ? 'Đang kết nối' :
+                       'Offline'}
+                    </span>
                   </div>
-                  <p className="text-[9.5px] text-slate-400 leading-normal font-sans">
-                    Bạn đang ở chế độ **Serverless P2P**. Tất cả nội dung trò chuyện, hình ảnh và kế hoạch được chia sẻ trực tiếp trong phiên kết nối online giữa hai người. 
-                  </p>
+
+                  <div className="flex gap-2">
+                    {p2pStatus !== 'connected' && p2pStatus !== 'connecting' && p2pStatus !== 'host_waiting' && (
+                      <button
+                        onClick={onStartP2PHost}
+                        className="flex-1 bg-[#c5a059]/10 hover:bg-[#c5a059]/20 text-[#c5a059] border border-[#c5a059]/30 py-2 rounded-xl text-[10.5px] font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Radio className="w-3.5 h-3.5" />
+                        <span>Kết nối P2P</span>
+                      </button>
+                    )}
+                    {p2pStatus === 'connected' && (
+                      <button
+                        onClick={onStopP2P}
+                        className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 py-2 rounded-xl text-[10.5px] font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <WifiOff className="w-3.5 h-3.5" />
+                        <span>Ngắt P2P</span>
+                      </button>
+                    )}
+                  </div>
+
                   <p className="text-[9.5px] text-amber-400/80 leading-normal font-sans bg-amber-500/5 p-2 rounded-lg border border-amber-500/10">
-                    ⚠️ **Cảnh báo bảo mật**: Do máy chủ hoàn toàn không ghi nhận dữ liệu persistent để tránh lưu trữ ngoài ý muốn, khi cả hai bạn cùng offline (đóng trình duyệt / tắt thiết bị), dữ liệu của phiên làm việc này sẽ tự động mất đi hoàn toàn.
+                    ⚠️ Dữ liệu truyền trực tiếp giữa 2 thiết bị qua WebRTC, không lưu trên server. Khi cả hai offline, dữ liệu sẽ mất.
                   </p>
                 </div>
               </div>

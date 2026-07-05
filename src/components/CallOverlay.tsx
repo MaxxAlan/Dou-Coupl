@@ -47,6 +47,7 @@ export default function CallOverlay({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const timerIntervalRef = useRef<any>(null);
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
   // Configuration for ICE Servers (Standard public STUN server for P2P connection)
   const rtcConfig = {
@@ -60,6 +61,7 @@ export default function CallOverlay({
   const sendSignal = async (signalData: any) => {
     try {
       await apiClient.post('/api/call/signal', {
+        senderId: activePartner,
         recipientId,
         signal: signalData
       }, { 'X-Pairing-Code': pairingCode });
@@ -92,7 +94,13 @@ export default function CallOverlay({
   useEffect(() => {
     const handleSignal = (event: CustomEvent) => {
       const { signal } = event.detail;
-      if (!peerConnectionRef.current) return;
+      if (!peerConnectionRef.current) {
+        // Buffer candidates arriving before peer connection is created
+        if (signal.type === 'candidate') {
+          pendingCandidatesRef.current.push(signal.candidate);
+        }
+        return;
+      }
 
       if (signal.type === 'answer') {
         peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(signal));
@@ -185,7 +193,8 @@ export default function CallOverlay({
       // Send offer signal
       await sendSignal({
         type: 'offer',
-        sdp: offer.sdp
+        sdp: offer.sdp,
+        video: callType === 'video'
       });
 
     } catch (e) {
@@ -211,6 +220,13 @@ export default function CallOverlay({
       // 2. Create peer connection
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = pc;
+
+      // Flush candidates that arrived before PC was ready
+      for (const candidate of pendingCandidatesRef.current) {
+        pc.addIceCandidate(new RTCIceCandidate(candidate))
+          .catch(err => console.error('Error adding pending ICE candidate:', err));
+      }
+      pendingCandidatesRef.current = [];
 
       // Add tracks
       stream.getTracks().forEach(track => {

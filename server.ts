@@ -94,6 +94,7 @@ const aiIdeasSchema = z.object({
 });
 
 const callSignalSchema = z.object({
+  senderId: z.enum(['A', 'B']),
   recipientId: z.enum(['A', 'B']),
   signal: z.any()
 });
@@ -116,10 +117,17 @@ app.use(helmet({
 
 // CORS Configuration
 const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
-// Always include Firebase Hosting origin in production
-const FIREBASE_HOSTING_ORIGIN = 'https://dou-coupl.web.app';
-if (!allowedOrigins.includes(FIREBASE_HOSTING_ORIGIN)) {
-  allowedOrigins.push(FIREBASE_HOSTING_ORIGIN);
+// Always include common origins
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://dou-coupl.web.app',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:4173',
+];
+for (const origin of DEFAULT_ALLOWED_ORIGINS) {
+  if (!allowedOrigins.includes(origin)) {
+    allowedOrigins.push(origin);
+  }
 }
 app.use(cors({
   origin: (origin, callback) => {
@@ -728,9 +736,9 @@ app.post('/api/call/signal', authMiddleware, async (req, res, next) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
     }
-    const { recipientId, signal } = parsed.data;
+    const { senderId, recipientId, signal } = parsed.data;
     
-    broadcastEvent('CALL_SIGNAL', { recipientId, signal });
+    broadcastEvent('CALL_SIGNAL', { senderId, recipientId, signal });
     res.json({ success: true });
   } catch (error) {
     next(error);

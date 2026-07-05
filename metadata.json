@@ -1,0 +1,6 @@
+{
+  "name": "Duo - Couple App",
+  "description": "Progressive Web App dành cho cặp đôi với mã hóa đầu cuối (E2EE) tuyệt đối bảo mật, chia sẻ tin nhắn, kỷ niệm locket, kế hoạch chung và được tích hợp cố vấn hẹn hò trí tuệ nhân tạo Gemini AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

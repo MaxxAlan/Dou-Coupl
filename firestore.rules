@@ -1,0 +1,124 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Master Gate: Checks if the current authenticated user belongs to the specified couple
+    function isMemberOfCouple(coupleId) {
+      return isSignedIn() && (
+        get(/databases/$(database)/documents/couples/$(coupleId)).data.partnerA.uid == request.auth.uid ||
+        get(/databases/$(database)/documents/couples/$(coupleId)).data.partnerB.uid == request.auth.uid
+      );
+    }
+
+    // Catch-all Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 1. Users Collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && userId == request.auth.uid;
+    }
+
+    // 2. Couples Collection
+    match /couples/{coupleId} {
+      allow read: if isSignedIn() && (
+        resource.data.partnerA.uid == request.auth.uid ||
+        resource.data.partnerB.uid == request.auth.uid
+      );
+      
+      allow create: if isSignedIn() && (
+        incoming().partnerA.uid == request.auth.uid ||
+        incoming().partnerB.uid == request.auth.uid
+      );
+      
+      allow update: if isSignedIn() && (
+        resource.data.partnerA.uid == request.auth.uid ||
+        resource.data.partnerB.uid == request.auth.uid
+      ) && (
+        incoming().diff(existing()).affectedKeys().hasAny(['partnerA', 'partnerB', 'anniversaryDate', 'passcodeHash', 'pairingCode'])
+      );
+
+      allow delete: if false; // Couples cannot be deleted directly by clients
+
+      // 3. Messages Subcollection
+      match /messages/{messageId} {
+        allow list, get: if isMemberOfCouple(coupleId);
+        
+        allow create: if isMemberOfCouple(coupleId) 
+          && incoming().senderId in ['A', 'B']
+          && incoming().ciphertext is string 
+          && incoming().ciphertext.size() <= 1000000
+          && incoming().iv is string
+          && incoming().iv.size() <= 128;
+          
+        allow update, delete: if false; // E2EE Messages are immutable
+      }
+
+      // 4. Photos Subcollection
+      match /photos/{photoId} {
+        allow list, get: if isMemberOfCouple(coupleId);
+        
+        allow create: if isMemberOfCouple(coupleId)
+          && incoming().senderId in ['A', 'B']
+          && incoming().ciphertext is string
+          && incoming().ciphertext.size() <= 10000000
+          && incoming().iv is string;
+          
+        allow update: if isMemberOfCouple(coupleId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['viewedAt']); // Only allow updating watched state for View Once
+          
+        allow delete: if isMemberOfCouple(coupleId); // Allow manual delete or self-destruct delete
+      }
+
+      // 5. Reminders Subcollection
+      match /reminders/{reminderId} {
+        allow list, get: if isMemberOfCouple(coupleId);
+        
+        allow create: if isMemberOfCouple(coupleId)
+          && incoming().title is string
+          && incoming().title.size() <= 500
+          && incoming().category is string
+          && incoming().dueDate is string;
+          
+        allow update: if isMemberOfCouple(coupleId)
+          && (incoming().diff(existing()).affectedKeys().hasAny(['completed', 'title', 'category', 'dueDate']));
+          
+        allow delete: if isMemberOfCouple(coupleId);
+      }
+
+      // 6. Special Anniversaries Subcollection
+      match /specialAnniversaries/{anniversaryId} {
+        allow list, get: if isMemberOfCouple(coupleId);
+        
+        allow create: if isMemberOfCouple(coupleId)
+          && incoming().title is string
+          && incoming().title.size() <= 500
+          && incoming().date is string;
+          
+        allow update: if isMemberOfCouple(coupleId)
+          && (incoming().diff(existing()).affectedKeys().hasAny(['title', 'date', 'notes', 'photo']));
+          
+        allow delete: if isMemberOfCouple(coupleId);
+      }
+    }
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Information about an authenticated user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "coupleId": { "type": "string" },
+        "pairingCode": { "type": "string" },
+        "createdAt": { "type": "integer" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Couple": {
+      "title": "Couple",
+      "description": "A shared space linking two partners",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "partnerA": { "type": "object" },
+        "partnerB": { "type": "object" },
+        "anniversaryDate": { "type": "string" },
+        "passcodeHash": { "type": "string" },
+        "pairingCode": { "type": "string" },
+        "createdAt": { "type": "integer" }
+      },
+      "required": ["id"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "An end-to-end encrypted chat message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderId": { "type": "string" },
+        "ciphertext": { "type": "string" },
+        "iv": { "type": "string" },
+        "timestamp": { "type": "integer" },
+        "type": { "type": "string" },
+        "expiresAt": { "type": "integer" }
+      },
+      "required": ["id", "senderId", "ciphertext", "iv", "timestamp"]
+    },
+    "Photo": {
+      "title": "Photo",
+      "description": "An end-to-end encrypted shared photo metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderId": { "type": "string" },
+        "storagePath": { "type": "string" },
+        "ciphertext": { "type": "string" },
+        "iv": { "type": "string" },
+        "captionCiphertext": { "type": "string" },
+        "captionIv": { "type": "string" },
+        "timestamp": { "type": "integer" },
+        "isViewOnce": { "type": "boolean" },
+        "viewedAt": { "type": "integer" }
+      },
+      "required": ["id", "senderId", "iv", "timestamp"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "A shared task or event checklist item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "createdBy": { "type": "string" },
+        "timestamp": { "type": "integer" }
+      },
+      "required": ["id", "title", "category", "dueDate", "completed", "createdBy", "timestamp"]
+    },
+    "SpecialAnniversary": {
+      "title": "SpecialAnniversary",
+      "description": "A customized anniversary event on the timeline",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "notes": { "type": "string" },
+        "photo": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "timestamp": { "type": "integer" }
+      },
+      "required": ["id", "title", "date", "createdBy", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile collection"
+    },
+    "/couples/{coupleId}": {
+      "schema": "Couple",
+      "description": "Shared couples collection"
+    },
+    "/couples/{coupleId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Chat subcollection for a couple"
+    },
+    "/couples/{coupleId}/photos/{photoId}": {
+      "schema": "Photo",
+      "description": "Locket photos subcollection for a couple"
+    },
+    "/couples/{coupleId}/reminders/{reminderId}": {
+      "schema": "Reminder",
+      "description": "Shared reminders subcollection for a couple"
+    },
+    "/couples/{coupleId}/specialAnniversaries/{anniversaryId}": {
+      "schema": "SpecialAnniversary",
+      "description": "Special anniversaries timeline subcollection for a couple"
+    }
+  }
+}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Camera, 
-  Image, 
+  Image as ImageIcon, 
   Trash2, 
   Eye, 
   EyeOff, 
@@ -28,7 +28,7 @@ import {
   Key
 } from 'lucide-react';
 import { EncryptedPhoto, Partner } from '../types';
-import { encryptData, decryptData, exportKeyToHex } from '../lib/crypto';
+import { encryptData, decryptData } from '../lib/crypto';
 import { ROMANTIC_PRESETS } from '../lib/demoData';
 import { 
   initAuth, 
@@ -42,6 +42,10 @@ import {
   GoogleDriveFile, 
   GooglePhotoItem 
 } from '../lib/googleApi';
+import useKeyHex from '../hooks/useKeyHex';
+import useDecryptedCollection from '../hooks/useDecryptedCollection';
+import { compressAndResizeImage } from '../lib/image';
+import { storageHelper } from '../lib/storage';
 
 interface AlbumTabProps {
   photos: EncryptedPhoto[];
@@ -51,6 +55,8 @@ interface AlbumTabProps {
   symmetricKey: CryptoKey | null;
   onUploadPhoto: (ciphertext: string, iv: string, isViewOnce: boolean, captionCiphertext?: string, captionIv?: string) => void;
   onDeletePhoto: (id: string) => void;
+  storageMethodA?: 'p2p' | 'googledrive';
+  storageMethodB?: 'p2p' | 'googledrive';
 }
 
 type UploadTab = 'device' | 'camera' | 'drive' | 'photos';
@@ -62,7 +68,9 @@ export default function AlbumTab({
   partnerB,
   symmetricKey,
   onUploadPhoto,
-  onDeletePhoto
+  onDeletePhoto,
+  storageMethodA,
+  storageMethodB
 }: AlbumTabProps) {
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -75,12 +83,9 @@ export default function AlbumTab({
 
   // Guided wizard flow step: 'main_choice' | 'upload_choice' | 'camera_flow' | 'device_flow' | 'drive_flow' | 'photos_flow'
   const [modalFlowStep, setModalFlowStep] = useState<'main_choice' | 'upload_choice' | 'camera_flow' | 'device_flow' | 'drive_flow' | 'photos_flow'>('main_choice');
-  const [symmetricKeyHex, setSymmetricKeyHex] = useState<string>('Đang tải khóa...');
   const [liveCiphertext, setLiveCiphertext] = useState<string>('');
   const [liveIv, setLiveIv] = useState<string>('');
 
-  // Decryption caches
-  const [decryptedImages, setDecryptedImages] = useState<Record<string, { src: string; caption: string }>>({});
   const [activePhotoView, setActivePhotoView] = useState<EncryptedPhoto | null>(null);
 
   // Google Integration states
@@ -101,34 +106,40 @@ export default function AlbumTab({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Decrypt images client-side
-  useEffect(() => {
-    if (!symmetricKey) return;
+  // Retrieve Key Hex using useKeyHex custom hook
+  const symmetricKeyHex = useKeyHex(symmetricKey);
 
-    const decryptAllPhotos = async () => {
-      const cache: Record<string, { src: string; caption: string }> = {};
-      for (const photo of photos) {
-        if (decryptedImages[photo.id]) {
-          cache[photo.id] = decryptedImages[photo.id];
-          continue;
-        }
-        
+  // Decrypt images client-side using useDecryptedCollection custom hook
+  const decryptedImages = useDecryptedCollection(
+    photos,
+    symmetricKey,
+    async (photo, key) => {
+      let ciphertext = photo.ciphertext;
+      let iv = photo.iv;
+
+      if (ciphertext.startsWith('drive://')) {
+        const fileId = ciphertext.substring(8);
         try {
-          const imgSrc = await decryptData(photo.ciphertext, photo.iv, symmetricKey);
-          let cap = '';
-          if (photo.captionCiphertext && photo.captionIv) {
-            cap = await decryptData(photo.captionCiphertext, photo.captionIv, symmetricKey);
-          }
-          cache[photo.id] = { src: imgSrc, caption: cap };
-        } catch (err) {
-          console.error('Failed to decrypt photo', photo.id, err);
+          const fileDataUrl = await downloadGoogleDriveFile(activePartner, fileId);
+          const base64Part = fileDataUrl.split(',')[1];
+          const decodedText = decodeURIComponent(escape(atob(base64Part)));
+          const payload = JSON.parse(decodedText);
+          ciphertext = payload.ciphertext;
+          iv = payload.iv;
+        } catch (e) {
+          console.warn('Failed to download/parse photo from Google Drive:', e);
+          return { src: 'LOCKED_DRIVE', caption: 'Kết nối Google Drive để xem' };
         }
       }
-      setDecryptedImages(cache);
-    };
 
-    decryptAllPhotos();
-  }, [photos, symmetricKey]);
+      const imgSrc = await decryptData(ciphertext, iv, key);
+      let cap = '';
+      if (photo.captionCiphertext && photo.captionIv) {
+        cap = await decryptData(photo.captionCiphertext, photo.captionIv, key);
+      }
+      return { src: imgSrc, caption: cap };
+    }
+  );
 
   // Synchronize Google Auth on mount and partner switch
   useEffect(() => {
@@ -148,19 +159,6 @@ export default function AlbumTab({
       stopCamera();
     };
   }, [activePartner]);
-
-  // Extract Symmetric Key Hex representation
-  useEffect(() => {
-    if (symmetricKey) {
-      exportKeyToHex(symmetricKey).then(hex => {
-        setSymmetricKeyHex(hex);
-      }).catch(() => {
-        setSymmetricKeyHex('ERR_EXTRACT');
-      });
-    } else {
-      setSymmetricKeyHex('Chưa có khóa bí mật');
-    }
-  }, [symmetricKey]);
 
   // Real-time E2EE Reactive Encryption Visualizer
   useEffect(() => {
@@ -323,13 +321,23 @@ export default function AlbumTab({
   };
 
   const processFile = (file: File) => {
+    if (file.size > 8 * 1024 * 1024) {
+      alert('Tệp hình ảnh quá lớn. Vui lòng chọn ảnh dưới 8MB.');
+      return;
+    }
     if (!file.type.startsWith('image/')) {
       alert('Vui lòng chọn tệp hình ảnh hợp lệ.');
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => {
-      setSelectedFile(reader.result as string);
+    reader.onload = async () => {
+      try {
+        const compressed = await compressAndResizeImage(reader.result as string, 1600, 0.8);
+        setSelectedFile(compressed);
+      } catch (err) {
+        console.warn('Error compressing image, using raw data', err);
+        setSelectedFile(reader.result as string);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -388,24 +396,37 @@ export default function AlbumTab({
         capIv = encryptedCap.iv;
       }
 
-      // 3. Submit encrypted blobs to server
-      onUploadPhoto(imgCiphertext, imgIv, isViewOnce, capCiphertext, capIv);
+      // Check current storage preference
+      const currentStorageMethod = activePartner === 'A' ? storageMethodA : storageMethodB;
 
-      // 4. Optionally, if they connected Google Drive & storage method is drive, upload a backup file
-      if (googleToken && localStorage.getItem(`storage_method_${activePartner}`) === 'googledrive') {
-        try {
-          const timestamp = Date.now();
-          // We can upload the encrypted image payload directly to Google Drive as an extra security backup!
-          await uploadFileToGoogleDrive(
-            activePartner,
-            `E2EE_PHOTO_BACKUP_${timestamp}.enc`,
-            'application/octet-stream',
-            `data:application/octet-stream;base64,${btoa(imgCiphertext)}`
-          );
-          console.log('[Google Drive] Successfully backed up E2EE encrypted memory to cloud');
-        } catch (e) {
-          console.warn('Failed to upload secure backup to Drive:', e);
+      if (currentStorageMethod === 'googledrive') {
+        if (!googleToken) {
+          alert('Bạn chọn lưu trữ Google Drive nhưng chưa kết nối Google. Vui lòng kết nối tài khoản Google trước!');
+          setIsUploading(false);
+          return;
         }
+
+        const timestamp = Date.now();
+        const payload = JSON.stringify({
+          ciphertext: imgCiphertext,
+          iv: imgIv
+        });
+
+        // Convert payload to base64
+        const base64Data = `data:text/plain;base64,${btoa(unescape(encodeURIComponent(payload)))}`;
+
+        const driveFile = await uploadFileToGoogleDrive(
+          activePartner,
+          `DUO_E2EE_${timestamp}.enc`,
+          'text/plain',
+          base64Data
+        );
+
+        // Submit pointer drive://[id] to local server db
+        onUploadPhoto(`drive://${driveFile.id}`, 'drive-iv', isViewOnce, capCiphertext, capIv);
+      } else {
+        // 3. Submit E2EE blobs directly to server db (P2P / Local mode)
+        onUploadPhoto(imgCiphertext, imgIv, isViewOnce, capCiphertext, capIv);
       }
 
       // Reset state
@@ -470,7 +491,13 @@ export default function AlbumTab({
                   {decrypted ? (
                     <>
                       {/* Actual image (decrypted client-side!) */}
-                      {photo.isViewOnce && !isSender ? (
+                      {decrypted.src === 'LOCKED_DRIVE' ? (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black p-4 text-center">
+                          <HardDrive className="w-8 h-8 text-[#c5a059] mb-2 animate-bounce" />
+                          <span className="text-[11px] font-medium text-slate-100">Cần Google Drive</span>
+                          <span className="text-[9px] text-[#c5a059]/60 mt-1">Đăng nhập Google để xem</span>
+                        </div>
+                      ) : photo.isViewOnce && !isSender ? (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black p-4 text-center">
                           <Clock className="w-8 h-8 text-[#c5a059] mb-2 animate-pulse" />
                           <span className="text-[11px] font-medium text-slate-100">Ảnh xem 1 lần</span>
@@ -673,7 +700,7 @@ export default function AlbumTab({
                         className="bg-white/[0.01] hover:bg-white/[0.03] border border-white/5 hover:border-[#c5a059]/30 rounded-2xl p-5 flex flex-col items-center text-center gap-3 transition-all group cursor-pointer"
                       >
                         <div className="w-11 h-11 rounded-full bg-slate-900 border border-white/5 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-all">
-                          <Image className="w-5 h-5" />
+                          <ImageIcon className="w-5 h-5" />
                         </div>
                         <div>
                           <h5 className="text-[11.5px] font-semibold text-slate-200 font-sans">Google Photos</h5>
@@ -832,7 +859,7 @@ export default function AlbumTab({
                                       <img src={file.thumbnailLink} alt={file.name} className="w-full h-full object-cover" />
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center text-slate-600">
-                                        <Image className="w-5 h-5" />
+                                        <ImageIcon className="w-5 h-5" />
                                       </div>
                                     )}
                                     <div className="absolute inset-x-0 bottom-0 bg-black/60 p-1 truncate text-[7.5px] text-slate-300">
@@ -888,7 +915,7 @@ export default function AlbumTab({
                       <div className="space-y-3">
                         {!googleToken ? (
                           <div className="border border-white/5 bg-white/[0.01] rounded-2xl p-6 text-center space-y-4">
-                            <Image className="w-10 h-10 text-[#c5a059]/60 mx-auto animate-pulse" />
+                            <ImageIcon className="w-10 h-10 text-[#c5a059]/60 mx-auto animate-pulse" />
                             <div className="space-y-1">
                               <h4 className="text-xs font-semibold text-slate-200">Truy xuất Google Photos cá nhân</h4>
                               <p className="text-[10px] text-slate-400 max-w-[240px] mx-auto leading-relaxed">
@@ -1059,7 +1086,7 @@ export default function AlbumTab({
                     </label>
                   </div>
 
-                  {googleToken && localStorage.getItem(`storage_method_${activePartner}`) === 'googledrive' && (
+                  {googleToken && storageHelper.getItem<string>(`storage_method_${activePartner}`, 'p2p') === 'googledrive' && (
                     <div className="bg-emerald-500/5 border border-emerald-500/10 p-3 rounded-2xl flex items-center gap-2.5 text-[9px] text-emerald-400 font-mono">
                       <HardDrive className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Sao lưu tự động bản gốc mã hóa an toàn lên Google Drive được kích hoạt</span>

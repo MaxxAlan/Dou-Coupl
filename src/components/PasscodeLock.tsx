@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, Unlock, ShieldAlert, Fingerprint } from 'lucide-react';
+import { storageHelper } from '../lib/storage';
 
 interface PasscodeLockProps {
   onUnlock: () => void;
@@ -8,6 +9,7 @@ interface PasscodeLockProps {
   isSettingMode?: boolean;
   onSetPasscodeComplete?: (pin: string) => void;
   onCancelSetting?: () => void;
+  onVerifyPasscode?: (pin: string) => Promise<boolean>;
 }
 
 export default function PasscodeLock({
@@ -15,7 +17,8 @@ export default function PasscodeLock({
   correctPasscode,
   isSettingMode = false,
   onSetPasscodeComplete,
-  onCancelSetting
+  onCancelSetting,
+  onVerifyPasscode
 }: PasscodeLockProps) {
   const [pin, setPin] = useState<string>('');
   const [stage, setStage] = useState<'enter' | 'confirm'>(isSettingMode ? 'enter' : 'enter');
@@ -51,7 +54,25 @@ export default function PasscodeLock({
         }
       } else {
         // Unlocking mode
-        if (pin === correctPasscode || correctPasscode === '') {
+        if (onVerifyPasscode) {
+          onVerifyPasscode(pin).then(isValid => {
+            if (isValid) {
+              onUnlock();
+            } else {
+              setError(true);
+              setTimeout(() => {
+                setError(false);
+                setPin('');
+              }, 800);
+            }
+          }).catch(() => {
+            setError(true);
+            setTimeout(() => {
+              setError(false);
+              setPin('');
+            }, 800);
+          });
+        } else if (pin === correctPasscode || correctPasscode === '') {
           onUnlock();
         } else {
           setError(true);
@@ -63,7 +84,7 @@ export default function PasscodeLock({
         }
       }
     }
-  }, [pin, correctPasscode, isSettingMode, stage, firstPin, onUnlock, onSetPasscodeComplete]);
+  }, [pin, correctPasscode, isSettingMode, stage, firstPin, onUnlock, onSetPasscodeComplete, onVerifyPasscode]);
 
   const handleKeyPress = (num: string) => {
     if (pin.length < 4) {
@@ -82,7 +103,7 @@ export default function PasscodeLock({
     setWebAuthnError(null);
     setIsSimulationMode(false);
 
-    const credIdBase64 = localStorage.getItem('webauthn_credential_id');
+    const credIdBase64 = storageHelper.getItem<string>('webauthn_credential_id', '');
 
     // If no credential is registered yet, fall back to simulated scanner so they can preview the flow!
     if (!credIdBase64) {

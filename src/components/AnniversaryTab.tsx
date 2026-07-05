@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Heart, 
@@ -17,9 +17,19 @@ import {
   Upload, 
   X, 
   MessageSquare,
-  ChevronRight
+  ChevronRight,
+  ArrowRight,
+  Info,
+  CalendarCheck2,
+  Camera,
+  HardDrive
 } from 'lucide-react';
-import { Partner, SpecialAnniversary } from '../types';
+import { storageHelper } from '../lib/storage';
+import { Partner, SpecialAnniversary, EncryptedPhoto } from '../types';
+import { decryptData, encryptData } from '../lib/crypto';
+import { compressAndResizeImage } from '../lib/image';
+import { apiClient } from '../lib/apiClient';
+import { downloadGoogleDriveFile, uploadFileToGoogleDrive } from '../lib/googleApi';
 
 interface AnniversaryTabProps {
   anniversaryDate: string;
@@ -30,6 +40,11 @@ interface AnniversaryTabProps {
   onUpdateAnniversary: (date: string) => void;
   onAddSpecialAnniversary: (createdBy: 'A' | 'B', title: string, date: string, notes?: string, photo?: string, id?: string) => void;
   onDeleteSpecialAnniversary: (id: string) => void;
+  photos?: EncryptedPhoto[];
+  symmetricKey: CryptoKey | null;
+  onUploadPhoto?: (ciphertext: string, iv: string, isViewOnce: boolean, captionCiphertext?: string, captionIv?: string) => Promise<void>;
+  storageMethodA?: 'p2p' | 'googledrive';
+  storageMethodB?: 'p2p' | 'googledrive';
 }
 
 export default function AnniversaryTab({
@@ -40,7 +55,12 @@ export default function AnniversaryTab({
   activePartner,
   onUpdateAnniversary,
   onAddSpecialAnniversary,
-  onDeleteSpecialAnniversary
+  onDeleteSpecialAnniversary,
+  photos = [],
+  symmetricKey,
+  onUploadPhoto,
+  storageMethodA,
+  storageMethodB
 }: AnniversaryTabProps) {
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [inputDate, setInputDate] = useState<string>(anniversaryDate);
@@ -64,6 +84,204 @@ export default function AnniversaryTab({
 
   // Full screen lightbox photo viewer
   const [lightboxPhoto, setLightboxPhoto] = useState<{ src: string; title: string } | null>(null);
+
+  // Locket Photo Decryption states (Component 3)
+  const latestPartnerPhoto = photos.find(p => p.senderId !== activePartner);
+  const [decryptedPhoto, setDecryptedPhoto] = useState<string | null>(null);
+  const [decryptedCaption, setDecryptedCaption] = useState<string | null>(null);
+  const [isDecrypting, setIsDecrypting] = useState<boolean>(false);
+
+  // Quick Camera Modal states (Component 3)
+  const [showCameraModal, setShowCameraModal] = useState<boolean>(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [locketCaption, setLocketCaption] = useState<string>('');
+  const [isUploadingLocket, setIsUploadingLocket] = useState<boolean>(false);
+  
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Decrypt latest locket photo sent by the partner
+  useEffect(() => {
+    if (!latestPartnerPhoto || !symmetricKey) {
+      setDecryptedPhoto(null);
+      setDecryptedCaption(null);
+      return;
+    }
+
+    let active = true;
+    setIsDecrypting(true);
+    
+    const decrypt = async () => {
+      try {
+        let ciphertext = latestPartnerPhoto.ciphertext;
+        let iv = latestPartnerPhoto.iv;
+
+        if (ciphertext.startsWith('drive://')) {
+          const fileId = ciphertext.substring(8);
+          try {
+            const fileDataUrl = await downloadGoogleDriveFile(activePartner, fileId);
+            const base64Part = fileDataUrl.split(',')[1];
+            const decodedText = decodeURIComponent(escape(atob(base64Part)));
+            const payload = JSON.parse(decodedText);
+            ciphertext = payload.ciphertext;
+            iv = payload.iv;
+          } catch (err) {
+            console.warn('Failed to download/parse photo from Google Drive:', err);
+            if (active) {
+              setDecryptedPhoto('LOCKED_DRIVE');
+            }
+            return;
+          }
+        }
+
+        const decImg = await decryptData(ciphertext, iv, symmetricKey);
+        let decCap = '';
+        if (latestPartnerPhoto.captionCiphertext && latestPartnerPhoto.captionIv) {
+          decCap = await decryptData(latestPartnerPhoto.captionCiphertext, latestPartnerPhoto.captionIv, symmetricKey);
+        }
+        if (active) {
+          setDecryptedPhoto(decImg);
+          setDecryptedCaption(decCap || null);
+        }
+      } catch (e) {
+        console.error('Failed to decrypt locket photo:', e);
+      } finally {
+        if (active) setIsDecrypting(false);
+      }
+    };
+
+    decrypt();
+    return () => { active = false; };
+  }, [latestPartnerPhoto?.id, symmetricKey]);
+
+  // Camera Management (Component 3)
+  const startCamera = async () => {
+    try {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode }
+      });
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      console.error('Error accessing camera:', err);
+      alert('Không thể truy cập camera thiết bị. Vui lòng cho phép quyền truy cập camera.');
+    }
+  };
+
+  useEffect(() => {
+    if (showCameraModal) {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+    return () => stopCamera();
+  }, [showCameraModal, facingMode]);
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setCapturedImage(dataUrl);
+        stopCamera();
+      }
+    }
+  };
+
+  const handleSendLocket = async () => {
+    if (!capturedImage || !symmetricKey || !onUploadPhoto) return;
+    setIsUploadingLocket(true);
+    try {
+      // Check current storage preference
+      const currentStorageMethod = activePartner === 'A' ? storageMethodA : storageMethodB;
+
+      // 1. Client-side compress and resize (Component 3)
+      const compressedB64 = await compressAndResizeImage(capturedImage, 1080, 0.8);
+      
+      // 2. Encrypt Image
+      const encImage = await encryptData(compressedB64, symmetricKey);
+
+      // 3. Encrypt Caption
+      let encCapCiphertext = undefined;
+      let encCapIv = undefined;
+      if (locketCaption.trim()) {
+        const encCaption = await encryptData(locketCaption.trim(), symmetricKey);
+        encCapCiphertext = encCaption.ciphertext;
+        encCapIv = encCaption.iv;
+      }
+
+      if (currentStorageMethod === 'googledrive') {
+        const googleToken = sessionStorage.getItem(`google_access_token_${activePartner}`);
+        if (!googleToken) {
+          alert('Bạn chọn lưu trữ Google Drive nhưng chưa kết nối Google. Vui lòng kết nối Google ở tab Bảo mật trước!');
+          setIsUploadingLocket(false);
+          return;
+        }
+
+        const timestamp = Date.now();
+        const payload = JSON.stringify({
+          ciphertext: encImage.ciphertext,
+          iv: encImage.iv
+        });
+
+        // Convert payload to base64
+        const base64Data = `data:text/plain;base64,${btoa(unescape(encodeURIComponent(payload)))}`;
+
+        const driveFile = await uploadFileToGoogleDrive(
+          activePartner,
+          `DUO_LOCKET_${timestamp}.enc`,
+          'text/plain',
+          base64Data
+        );
+
+        // Submit pointer drive://[id] to local server db
+        await onUploadPhoto(
+          `drive://${driveFile.id}`,
+          'drive-iv',
+          false,
+          encCapCiphertext,
+          encCapIv
+        );
+      } else {
+        // 4. Post E2EE Photo directly to server db (P2P / Local mode)
+        await onUploadPhoto(
+          encImage.ciphertext,
+          encImage.iv,
+          false,
+          encCapCiphertext,
+          encCapIv
+        );
+      }
+
+      setShowCameraModal(false);
+      setCapturedImage(null);
+      setLocketCaption('');
+      alert('Đã gửi ảnh Locket mã hóa thành công!');
+    } catch (e) {
+      console.error(e);
+      alert('Gặp lỗi khi gửi ảnh Locket.');
+    } finally {
+      setIsUploadingLocket(false);
+    }
+  };
 
   // Sync main date state
   useEffect(() => {
@@ -114,90 +332,50 @@ export default function AnniversaryTab({
     }
   }, [anniversaryDate]);
 
-  // Fetch romantic advice from Gemini AI
-  const fetchAiSuggestions = async (forceRefresh = false) => {
-    const todayStr = (() => {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    })();
-
-    // Implement caching logic: "nếu trong ngày đã tự động gợi ý thì ko gợi ý lại, chỉ gợi ý lại khi user ấn đổi gợi ý."
-    if (!forceRefresh) {
-      try {
-        const cached = localStorage.getItem('couple_app_ai_ideas_cache');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (
-            parsed &&
-            parsed.date === todayStr &&
-            parsed.daysTogether === daysTogether &&
-            Array.isArray(parsed.ideas) &&
-            parsed.ideas.length > 0
-          ) {
-            setAiIdeas(parsed.ideas);
-            return;
-          }
-        }
-      } catch (e) {
-        console.error('Error reading AI suggestion cache:', e);
-      }
-    }
-
+  // AI suggestions loader
+  const fetchAiSuggestions = async () => {
+    if (!anniversaryDate || daysTogether <= 0) return;
     setIsLoadingAi(true);
     setAiError(null);
-
     try {
-      const customApiKey = localStorage.getItem('custom_gemini_api_key') || '';
-      const response = await fetch('/api/ai-ideas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ daysTogether, anniversaryDate, customApiKey })
-      });
-
-      if (!response.ok) {
-        throw new Error('Không thể tải gợi ý tình yêu từ AI.');
+      const cached = storageHelper.getItem<any>(`ai_ideas_${daysTogether}`, null);
+      if (cached && cached.date === anniversaryDate) {
+        setAiIdeas(cached.ideas);
+        setIsLoadingAi(false);
+        return;
       }
 
-      const data = await response.json();
-      if (data && data.ideas) {
-        setAiIdeas(data.ideas);
-        // Save to cache
-        try {
-          localStorage.setItem(
-            'couple_app_ai_ideas_cache',
-            JSON.stringify({
-              date: todayStr,
-              daysTogether,
-              ideas: data.ideas
-            })
-          );
-        } catch (e) {
-          console.error('Error saving AI suggestion cache:', e);
-        }
-      } else {
-        throw new Error('Định dạng dữ liệu AI không đúng.');
+      const res = await apiClient.post('/api/ai-ideas', {
+        daysTogether,
+        anniversaryDate
+      });
+      if (res.ideas && Array.isArray(res.ideas)) {
+        setAiIdeas(res.ideas);
+        storageHelper.setItem(`ai_ideas_${daysTogether}`, {
+          date: anniversaryDate,
+          ideas: res.ideas
+        });
       }
     } catch (err: any) {
-      console.error(err);
-      setAiError('Không tải được ý tưởng AI. Vui lòng kiểm tra API Key trong thiết lập hoặc thử lại.');
-      // Fallback dating ideas
-      const fallbackIdeas = [
-        '🍳 Cùng nhau chuẩn bị bữa tối ấm áp: Chọn một công thức mới cả hai chưa từng làm, bật nhạc Lofi và nấu cùng nhau.',
-        '🏕️ Cắm trại mini tại gia: Dựng lều nhỏ ở ban công hoặc phòng khách, trang trí đèn đom đóm, uống trà nóng và ôn lại kỉ niệm ngày đầu gặp gỡ.',
-        '✉️ Viết thư tay gửi tương lai: Mỗi người viết một lá thư tay gửi cho đối phương phiên bản 1 năm sau, cất trong chiếc hộp bí mật.',
-        '☕ Bản đồ cà phê cuối tuần: Đi thử một quán cà phê mới lạ chưa từng ghé ở một góc phố yên bình, trò chuyện không dùng điện thoại.'
-      ];
-      setAiIdeas(fallbackIdeas);
-
-      // Also cache fallback to prevent continuous loader or repeated requests for today
+      console.warn('AI Dating ideas load failed:', err);
+      // Fallback
       try {
-        localStorage.setItem(
-          'couple_app_ai_ideas_cache',
-          JSON.stringify({
-            date: todayStr,
+        const todayStr = new Date(anniversaryDate).toLocaleDateString('vi-VN');
+        const fallbackIdeas = [
+          `Cùng nhau viết một bức thư tay lãng mạn nhân mốc ${daysTogether} ngày yêu và hẹn ngày mở ra đọc.`,
+          `Chuẩn bị một bữa tối tự nấu nướng nến lãng mạn tại gia mô phỏng nhà hàng đầu tiên hai bạn hẹn hò.`,
+          `Thiết kế một bản đồ mini những nơi kỷ niệm in dấu chân tình yêu từ ngày ${todayStr}.`,
+          `Dành trọn vẹn một tối xem lại những thước phim hoặc bức ảnh locket cũ hai bạn từng chụp cho nhau.`
+        ];
+        setAiIdeas(fallbackIdeas);
+        setAiError('Đang dùng gợi ý lãng mạn dự phòng (Không thể kết nối Gemini API).');
+        storageHelper.setItem(
+          `ai_ideas_${daysTogether}`,
+          {
+            date: anniversaryDate,
             daysTogether,
             ideas: fallbackIdeas
-          })
+          }
         );
       } catch (e) {}
     } finally {
@@ -362,6 +540,73 @@ export default function AnniversaryTab({
           </div>
         </div>
 
+        {/* Locket Polaroid Widget (Component 3) */}
+        <div className="bg-[#0e0e0e]/40 border border-white/5 p-5 rounded-3xl flex flex-col gap-4">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-1.5 text-slate-300">
+              <ImageIcon className="w-4 h-4 text-[#c5a059]" />
+              <h3 className="text-xs font-semibold font-sans tracking-wide">Khoảnh khắc Locket lứa đôi</h3>
+            </div>
+            <button
+              onClick={() => {
+                setCapturedImage(null);
+                setLocketCaption('');
+                setShowCameraModal(true);
+              }}
+              className="px-3.5 py-1.5 bg-[#c5a059] hover:bg-[#b08b47] text-black font-semibold text-[10px] rounded-full transition-colors flex items-center gap-1 cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>Gửi Locket</span>
+            </button>
+          </div>
+
+          {/* Polaroid Frame */}
+          <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl flex flex-col items-center shadow-lg relative max-w-[280px] mx-auto w-full group">
+            {isDecrypting ? (
+              <div className="aspect-square w-full rounded-lg bg-black/40 flex flex-col items-center justify-center text-slate-500 font-mono text-[9px] uppercase tracking-wider gap-2">
+                <Loader2 className="w-5 h-5 text-[#c5a059] animate-spin" />
+                <span>Đang giải mã Locket...</span>
+              </div>
+            ) : decryptedPhoto === 'LOCKED_DRIVE' ? (
+              <div className="aspect-square w-full rounded-lg bg-black/40 flex flex-col items-center justify-center text-center p-6 text-slate-500 gap-2">
+                <HardDrive className="w-8 h-8 text-[#c5a059] animate-bounce" />
+                <h5 className="text-[10px] font-semibold text-slate-400">Yêu cầu kết nối Drive</h5>
+                <p className="text-[8.5px] text-slate-600 max-w-[150px] leading-normal font-sans">
+                  Vui lòng kết nối Google Drive ở tab Bảo mật để tải ảnh Locket của bạn.
+                </p>
+              </div>
+            ) : decryptedPhoto ? (
+              <div className="w-full space-y-4">
+                {/* Image container */}
+                <div className="aspect-square w-full rounded-lg overflow-hidden border border-white/5 bg-black relative">
+                  <img
+                    src={decryptedPhoto}
+                    alt="Latest Partner Locket"
+                    className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-300"
+                  />
+                  {/* Polaroid tape effect */}
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-4 bg-white/10 backdrop-blur-sm border-x border-white/5 rotate-[-2deg]" />
+                </div>
+                {/* Caption / Signature */}
+                <div className="text-center font-serif italic text-slate-300 text-xs px-2 pt-1 min-h-[20px] tracking-wide break-words">
+                  {decryptedCaption || "Gửi một chút ngọt ngào... 💕"}
+                </div>
+                <div className="text-center text-[8px] font-mono text-slate-500 tracking-wider">
+                  Gửi bởi {latestPartnerPhoto?.senderId === 'A' ? partnerA.name : partnerB.name} · {new Date(latestPartnerPhoto?.timestamp || 0).toLocaleDateString('vi-VN')}
+                </div>
+              </div>
+            ) : (
+              <div className="aspect-square w-full rounded-lg bg-black/40 border border-dashed border-white/10 flex flex-col items-center justify-center text-center p-6 text-slate-500 gap-2">
+                <Camera className="w-8 h-8 text-slate-600 animate-pulse" />
+                <h5 className="text-[10px] font-semibold text-slate-400">Chưa có ảnh Locket nào</h5>
+                <p className="text-[8.5px] text-slate-600 max-w-[150px] leading-normal font-sans">
+                  Chụp ảnh và chia sẻ ngay khoảnh khắc hiện tại của bạn cho đối phương!
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Partner Connect Visual representation */}
         <div className="grid grid-cols-3 items-center px-4">
           <div className="flex flex-col items-center space-y-1.5">
@@ -388,7 +633,7 @@ export default function AnniversaryTab({
           </div>
         </div>
 
-        {/* ACTIVE REMINDERS WIDGET (Sends/Shows reminders for special dates) */}
+        {/* ACTIVE REMINDERS WIDGET */}
         {upcomingReminders.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -445,347 +690,371 @@ export default function AnniversaryTab({
           </div>
         </div>
 
-        {/* SPECIAL ANNIVERSARIES TIMELINE (The add/track feature) */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-mono text-slate-400 flex items-center gap-1.5 uppercase tracking-wider">
-              <Calendar className="w-4 h-4 text-[#c5a059]" />
-              <span>DÒNG THỜI GIAN KỶ NIỆM ĐẶC BIỆT</span>
-            </h3>
-            
+        {/* AI suggestions matching the days */}
+        <div className="space-y-3.5 bg-gradient-to-b from-[#0a0a0a] to-[#0c0c0c] border border-white/5 rounded-3xl p-5 shadow-inner">
+          <div className="flex items-center justify-between text-slate-300">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[#c5a059] animate-pulse" />
+              <h3 className="text-xs font-semibold font-sans tracking-wide">Ý tưởng lãng mạn từ AI</h3>
+            </div>
             <button
-              onClick={() => setIsAddingAnniv(!isAddingAnniv)}
-              className="text-xs text-[#c5a059] hover:text-[#ebd4b3] flex items-center gap-1 font-medium transition-colors cursor-pointer bg-[#c5a059]/10 border border-[#c5a059]/25 py-1 px-2.5 rounded-lg"
+              onClick={fetchAiSuggestions}
+              disabled={isLoadingAi}
+              className="p-1 rounded bg-white/[0.03] border border-white/10 text-slate-400 hover:text-slate-200 cursor-pointer disabled:opacity-50"
+              title="Tải lại ý tưởng"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Thêm kỉ niệm</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAi ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
-          {/* Form to Add Special Anniversary */}
-          <AnimatePresence>
-            {isAddingAnniv && (
-              <motion.form
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                onSubmit={handleAddSpecialAnnivSubmit}
-                className="bg-[#0c0c0c] border border-white/5 p-4 rounded-2xl space-y-3.5 overflow-hidden shadow-xl"
-              >
-                <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                  <span className="text-xs font-semibold text-slate-200">Ghi lại một kỷ niệm mới</span>
-                  <button 
-                    type="button" 
-                    onClick={() => setIsAddingAnniv(false)}
-                    className="p-1 hover:text-red-400 text-slate-500"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+          {isLoadingAi ? (
+            <div className="py-8 flex flex-col items-center justify-center text-center gap-2">
+              <Loader2 className="w-6 h-6 text-[#c5a059] animate-spin" />
+              <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">Đang tham vấn trí tuệ nhân tạo...</p>
+            </div>
+          ) : (
+            <>
+              {aiError && (
+                <div className="bg-[#c5a059]/10 border border-[#c5a059]/20 rounded-xl p-2.5 flex items-start gap-2 text-[10px] text-[#ebd4b3] font-sans">
+                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#c5a059]" />
+                  <span className="leading-normal">{aiError}</span>
                 </div>
-
-                <div className="space-y-2.5">
-                  <div>
-                    <label className="block text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-1">Tên ngày kỷ niệm *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ví dụ: Chuyến phượt Đà Lạt, Lần đầu nắm tay..."
-                      value={newTitle}
-                      onChange={e => setNewTitle(e.target.value)}
-                      className="w-full bg-black border border-white/5 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-[#c5a059]/50 transition-colors placeholder:text-slate-600"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-2">
-                    <div>
-                      <label className="block text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-1">Chọn ngày *</label>
-                      <input
-                        type="date"
-                        required
-                        value={newDate}
-                        onChange={e => setNewDate(e.target.value)}
-                        className="w-full bg-black border border-white/5 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-[#c5a059]/50 transition-colors font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-1">Lời nhắn / Ghi chú</label>
-                    <textarea
-                      placeholder="Lưu lại cảm xúc ngọt ngào hôm đó của hai bạn..."
-                      value={newNotes}
-                      onChange={e => setNewNotes(e.target.value)}
-                      rows={2}
-                      className="w-full bg-black border border-white/5 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-[#c5a059]/50 transition-colors placeholder:text-slate-600 resize-none"
-                    />
-                  </div>
-
-                  {/* Photo upload associated with anniversary */}
-                  <div>
-                    <label className="block text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-1">Ảnh kỷ niệm đính kèm</label>
-                    <div className="flex items-center gap-3">
-                      <label className="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 hover:border-[#c5a059]/40 bg-black/50 hover:bg-black p-3 rounded-xl cursor-pointer transition-all">
-                        <div className="flex flex-col items-center justify-center text-center space-y-1">
-                          <Upload className="w-4 h-4 text-slate-500" />
-                          <span className="text-[10px] text-slate-400">Tải ảnh lên (.png, .jpg)</span>
-                        </div>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handlePhotoUploadChange}
-                          className="hidden"
-                        />
-                      </label>
-                      
-                      {selectedPhotoPreview && (
-                        <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-white/10 shrink-0">
-                          <img src={selectedPhotoPreview} alt="Preview" className="w-full h-full object-cover" />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewPhoto('');
-                              setSelectedPhotoPreview('');
-                            }}
-                            className="absolute top-0.5 right-0.5 bg-black/70 p-0.5 rounded-full text-slate-300 hover:text-red-400"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
-                  <button
-                    type="button"
-                    onClick={() => setIsAddingAnniv(false)}
-                    className="text-[11px] font-medium bg-white/[0.02] border border-white/5 hover:bg-white/[0.05] text-slate-400 py-1.5 px-3.5 rounded-lg transition-all cursor-pointer"
+              )}
+              
+              <ul className="space-y-3">
+                {aiIdeas.map((idea, idx) => (
+                  <motion.li
+                    key={idx}
+                    initial={{ opacity: 0, x: -5 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.1 }}
+                    className="flex gap-2.5 items-start text-xs text-slate-300 leading-relaxed group"
                   >
-                    Hủy bỏ
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="text-[11px] font-semibold bg-[#c5a059] hover:bg-[#b08b47] text-black py-1.5 px-4 rounded-lg transition-all flex items-center gap-1 disabled:opacity-50 cursor-pointer"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        <span>Đang lưu...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Check className="w-3 h-3" />
-                        <span>Lưu kỷ niệm</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </motion.form>
-            )}
-          </AnimatePresence>
+                    <span className="text-[#c5a059] font-mono select-none mt-0.5 group-hover:scale-110 transition-transform">0{idx + 1}.</span>
+                    <span>{idea}</span>
+                  </motion.li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
 
-          {/* List of Special Anniversaries */}
-          <div className="space-y-3">
-            {allAnniversariesSorted.length === 0 ? (
-              <div className="text-center py-8 bg-white/[0.02] border border-white/5 rounded-2xl text-slate-500 flex flex-col items-center">
-                <Calendar className="w-8 h-8 text-slate-600 mb-2 stroke-1" />
-                <p className="text-xs">Chưa có kỷ niệm đặc biệt nào được ghi lại</p>
-                <p className="text-[10px] text-slate-600 mt-1">Hãy nhấn nút Thêm kỉ niệm để lưu lại khoảnh khắc chung!</p>
-              </div>
-            ) : (
-              allAnniversariesSorted.map(anniv => (
-                <motion.div
+        {/* Special Anniversary dates timeline */}
+        <div className="space-y-3.5">
+          <div className="flex justify-between items-center text-slate-300">
+            <div className="flex items-center gap-2">
+              <CalendarCheck2 className="w-4 h-4 text-[#c5a059]" />
+              <h3 className="text-xs font-semibold font-sans tracking-wide">Mốc kỷ niệm lứa đôi</h3>
+            </div>
+            <button
+              onClick={() => setIsAddingAnniv(true)}
+              className="p-1 bg-[#c5a059] hover:bg-[#b08b47] text-black rounded-lg cursor-pointer flex items-center justify-center"
+              title="Thêm kỷ niệm mới"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {allAnniversariesSorted.length === 0 ? (
+            <div className="bg-white/[0.01] border border-dashed border-white/5 rounded-2xl p-6 text-center text-slate-500 text-xs">
+              Chưa thiết lập mốc kỷ niệm riêng nào. Ấn nút (+) ở góc để thêm mới nhé!
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {allAnniversariesSorted.map(anniv => (
+                <div 
                   key={anniv.id}
-                  whileHover={{ scale: 1.005 }}
-                  className={`p-4 bg-white/[0.02] border rounded-2xl relative space-y-3 transition-colors ${
-                    anniv.countdown.isToday 
-                      ? 'border-[#c5a059]/40 bg-[#c5a059]/[0.02]' 
-                      : 'border-white/5 hover:border-white/10'
-                  }`}
+                  className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col gap-3.5 hover:border-white/10 transition-colors relative"
                 >
-                  {/* Delete button */}
                   <button
-                    onClick={() => {
-                      if (confirm(`Bạn chắc chắn muốn xóa kỷ niệm "${anniv.title}"?`)) {
-                        onDeleteSpecialAnniversary(anniv.id);
-                      }
-                    }}
-                    className="absolute top-3.5 right-3.5 p-1 text-slate-600 hover:text-red-400 transition-colors rounded-lg hover:bg-white/[0.02] cursor-pointer"
+                    onClick={() => onDeleteSpecialAnniversary(anniv.id)}
+                    className="absolute top-4 right-4 p-1.5 rounded-lg bg-white/[0.02] border border-white/5 text-slate-500 hover:text-red-400 cursor-pointer"
                     title="Xóa kỷ niệm"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
 
-                  <div className="flex items-start gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-[#c5a059]/10 border border-[#c5a059]/20 text-[#c5a059] flex items-center justify-center shrink-0 mt-0.5">
-                      <Heart className="w-4 h-4 fill-[#c5a059]/10" />
-                    </div>
-
-                    <div className="flex-1 min-w-0 pr-6">
-                      <h4 className="text-xs font-semibold text-slate-100 flex items-center gap-1.5 flex-wrap">
-                        <span>{anniv.title}</span>
+                  <div className="flex gap-3">
+                    {anniv.photo ? (
+                      <button 
+                        onClick={() => setLightboxPhoto({ src: anniv.photo, title: anniv.title })}
+                        className="w-16 h-16 rounded-xl overflow-hidden border border-white/5 shrink-0 cursor-pointer bg-black"
+                      >
+                        <img src={anniv.photo} alt={anniv.title} className="w-full h-full object-cover" />
+                      </button>
+                    ) : (
+                      <div className="w-16 h-16 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-center shrink-0 text-slate-600">
+                        <Heart className="w-6 h-6" />
+                      </div>
+                    )}
+                    
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className="text-xs font-semibold text-slate-100">{anniv.title}</h4>
                         {anniv.countdown.isToday && (
-                          <span className="text-[9px] font-bold uppercase tracking-wide bg-rose-500/10 text-rose-400 border border-rose-500/20 px-1.5 py-0.5 rounded-full animate-pulse">
+                          <span className="text-[8px] font-semibold bg-rose-500/20 text-rose-400 py-0.5 px-2 rounded-full border border-rose-500/20 uppercase animate-pulse">
                             Hôm nay 🎉
                           </span>
                         )}
-                      </h4>
-
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[10px] text-slate-500 font-mono">
-                          {new Date(anniv.date).toLocaleDateString('vi-VN')}
-                        </span>
-                        <span className="w-1 h-1 rounded-full bg-slate-700" />
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          {anniv.countdown.yearsPassed > 0 
-                            ? `Kỷ niệm ${anniv.countdown.yearsPassed} năm` 
-                            : 'Trong năm đầu yêu'}
-                        </span>
                       </div>
-
-                      {/* Notes text */}
+                      <p className="text-[10px] text-slate-500 font-mono">
+                        {new Date(anniv.date).toLocaleDateString('vi-VN')}
+                      </p>
                       {anniv.notes && (
-                        <div className="mt-2.5 bg-black/40 border-l-2 border-[#c5a059]/40 py-1.5 pl-2.5 pr-1.5 rounded-r-xl text-[11px] text-slate-300 italic leading-relaxed">
-                          {anniv.notes}
-                        </div>
+                        <p className="text-[10.5px] text-slate-400 leading-normal line-clamp-2">{anniv.notes}</p>
                       )}
-
-                      {/* Attached Photo */}
-                      {anniv.photo && (
-                        <div 
-                          onClick={() => setLightboxPhoto({ src: anniv.photo!, title: anniv.title })}
-                          className="mt-3 relative aspect-video rounded-xl overflow-hidden border border-white/5 cursor-zoom-in max-w-[240px] hover:border-white/20 transition-all group"
-                        >
-                          <img src={anniv.photo} alt={anniv.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                          <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                            <span className="text-[9px] bg-black/80 font-semibold py-1 px-2 rounded-full border border-white/10 text-slate-200">Xem ảnh lớn</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Creator badge metadata */}
-                      <div className="mt-2.5 flex items-center gap-1.5 text-[9px] text-slate-500">
-                        <span className="font-mono">Tạo bởi:</span>
-                        <span className="bg-white/[0.04] px-1.5 py-0.5 rounded text-slate-400 font-medium">
-                          {anniv.createdBy === 'A' ? partnerA.name : partnerB.name}
-                        </span>
-                        <span className="font-mono ml-auto">
-                          {new Date(anniv.timestamp).toLocaleDateString('vi-VN')}
-                        </span>
-                      </div>
                     </div>
                   </div>
-                </motion.div>
-              ))
-            )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Lightbox photo viewer */}
+      {lightboxPhoto && (
+        <div 
+          className="fixed inset-0 z-[9999] bg-black/95 flex flex-col items-center justify-center p-4 cursor-zoom-out"
+          onClick={() => setLightboxPhoto(null)}
+        >
+          <div className="w-full max-w-lg space-y-4">
+            <div className="flex justify-between items-center text-slate-300">
+              <span className="text-xs font-semibold">{lightboxPhoto.title}</span>
+              <button className="p-1 rounded hover:bg-white/10"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="aspect-[4/3] w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center">
+              <img src={lightboxPhoto.src} alt={lightboxPhoto.title} className="w-full h-full object-contain" />
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Gemini AI Coach Dating suggestions */}
-        <div className="space-y-3.5 pt-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-mono text-slate-400 flex items-center gap-1.5 uppercase tracking-wider">
-              <Sparkles className="w-4 h-4 text-[#c5a059]" />
-              <span>Ý TƯỞNG HẸN HÒ AI (GEMINI COACH)</span>
-            </h3>
+      {/* Quick Camera Capture Modal (Component 3) */}
+      {showCameraModal && (
+        <div className="fixed inset-0 z-[9999] bg-[#090b11]/98 backdrop-blur-xl flex flex-col justify-between p-6 overflow-hidden">
+          {/* Header */}
+          <div className="flex justify-between items-center text-slate-100">
+            <h3 className="text-xs font-semibold tracking-wide">Chụp ảnh Locket mới</h3>
             <button
-              onClick={() => fetchAiSuggestions(true)}
-              disabled={isLoadingAi}
-              className="text-xs text-[#c5a059] hover:text-[#f5e0a0] flex items-center gap-1 disabled:opacity-50 transition-colors font-medium cursor-pointer"
+              onClick={() => {
+                stopCamera();
+                setShowCameraModal(false);
+              }}
+              className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-100 transition-colors cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAi ? 'animate-spin' : ''}`} />
-              <span>Đổi gợi ý</span>
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-          <AnimatePresence mode="wait">
-            {isLoadingAi ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="bg-white/[0.02] border border-white/5 p-8 rounded-2xl flex flex-col items-center justify-center text-center text-slate-400"
-              >
-                <Loader2 className="w-7 h-7 text-[#c5a059] animate-spin mb-3" />
-                <p className="text-xs font-medium">Gemini Love Coach đang phân tích...</p>
-                <p className="text-[10px] text-slate-500 mt-1">Tìm kiếm những hoạt động lãng mạn dựa trên {daysTogether} ngày yêu của bạn</p>
-              </motion.div>
-            ) : aiError ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="bg-white/[0.02] border border-white/5 p-5 rounded-2xl flex flex-col items-center justify-center text-center text-slate-400"
-              >
-                <AlertCircle className="w-6 h-6 text-[#c5a059] mb-2" />
-                <p className="text-xs">{aiError}</p>
-                <button
-                  onClick={() => fetchAiSuggestions(true)}
-                  className="mt-3 text-xs bg-[#c5a059] hover:bg-[#b08b47] text-black py-1.5 px-4 rounded-full font-medium"
-                >
-                  Thử lại
-                </button>
-              </motion.div>
+          {/* Camera View / Preview */}
+          <div className="flex-1 flex flex-col items-center justify-center my-6">
+            {!capturedImage ? (
+              <div className="w-full max-w-sm aspect-square bg-black rounded-3xl overflow-hidden border border-white/5 relative shadow-2xl">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 pointer-events-none border-[12px] border-black/30 rounded-3xl" />
+              </div>
             ) : (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="space-y-3"
-              >
-                {aiIdeas.map((idea, index) => (
-                  <motion.div
-                    key={index}
-                    whileHover={{ scale: 1.01 }}
-                    className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex items-start gap-3 hover:border-white/10 transition-colors"
-                  >
-                    <div className="text-xs text-slate-200 leading-relaxed font-sans">{idea}</div>
-                  </motion.div>
-                ))}
-              </motion.div>
+              <div className="w-full max-w-sm aspect-square bg-slate-900 rounded-3xl overflow-hidden border border-white/5 relative shadow-2xl flex flex-col">
+                <img
+                  src={capturedImage}
+                  alt="Captured Preview"
+                  className="w-full h-full object-cover"
+                />
+              </div>
             )}
-          </AnimatePresence>
+
+            {/* Caption Input for Captured Photo */}
+            {capturedImage && (
+              <div className="w-full max-w-sm mt-4">
+                <input
+                  type="text"
+                  maxLength={80}
+                  placeholder="Thêm lời nhắn ngọt ngào cho ảnh..."
+                  value={locketCaption}
+                  onChange={(e) => setLocketCaption(e.target.value)}
+                  className="w-full bg-white/[0.02] border border-white/5 hover:border-white/10 rounded-2xl py-3 px-4 text-center text-xs text-slate-100 focus:outline-none focus:border-[#c5a059]/40 transition-colors placeholder:text-slate-600 font-serif italic"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Controls Footer */}
+          <div className="w-full max-w-sm mx-auto mb-4">
+            {!capturedImage ? (
+              <div className="flex justify-around items-center">
+                {/* Switch Camera */}
+                <button
+                  onClick={() => setFacingMode(prev => prev === 'user' ? 'environment' : 'user')}
+                  className="p-3 rounded-full bg-white/5 border border-white/10 text-slate-300 hover:text-slate-100 hover:bg-white/10 transition-colors cursor-pointer"
+                  title="Đổi camera"
+                >
+                  <RefreshCw className="w-5 h-5" />
+                </button>
+                {/* Capture Shutter Button */}
+                <button
+                  onClick={capturePhoto}
+                  className="w-16 h-16 rounded-full bg-white border-4 border-slate-700 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+                />
+                <div className="w-11" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => {
+                    setCapturedImage(null);
+                    setLocketCaption('');
+                    startCamera();
+                  }}
+                  className="bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-semibold py-3.5 rounded-2xl cursor-pointer transition-colors"
+                >
+                  Chụp lại
+                </button>
+                <button
+                  disabled={isUploadingLocket}
+                  onClick={handleSendLocket}
+                  className="bg-[#c5a059] hover:bg-[#b08b47] text-black text-xs font-semibold py-3.5 rounded-2xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+                >
+                  {isUploadingLocket ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang gửi...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Gửi Locket</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+      )}
 
-      </div>
-
-      {/* Lightbox photo fullscreen viewer */}
+      {/* Add Special Anniversary Modal Form */}
       <AnimatePresence>
-        {lightboxPhoto && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setLightboxPhoto(null)}
-            className="absolute inset-0 bg-black/95 z-50 flex flex-col justify-center p-4"
-          >
-            <div className="absolute top-4 right-4 flex items-center gap-3">
-              <span className="text-xs text-slate-400 font-sans">{lightboxPhoto.title}</span>
+        {isAddingAnniv && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-sm bg-gradient-to-b from-[#111] to-[#0c0c0c] border border-white/5 rounded-3xl p-6.5 space-y-4 shadow-2xl relative"
+            >
               <button
-                onClick={() => setLightboxPhoto(null)}
-                className="p-2 rounded-full bg-white/10 text-white hover:bg-white/20"
+                onClick={() => setIsAddingAnniv(false)}
+                className="absolute top-4 right-4 p-1 rounded hover:bg-white/10 text-slate-400"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
-            </div>
-            
-            <div className="max-w-full max-h-[80vh] flex items-center justify-center overflow-hidden">
-              <motion.img 
-                initial={{ scale: 0.95 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0.95 }}
-                src={lightboxPhoto.src} 
-                alt={lightboxPhoto.title} 
-                className="max-w-full max-h-full object-contain rounded-xl border border-white/10" 
-              />
-            </div>
-            
-            <p className="text-[10px] text-slate-500 font-mono text-center mt-4">Chạm vào bất kỳ vị trí nào để đóng</p>
-          </motion.div>
+
+              <div>
+                <h3 className="text-sm font-semibold text-slate-100">Thêm ngày kỷ niệm</h3>
+                <p className="text-[10px] text-slate-500 mt-0.5">Lưu lại các mốc thời gian đặc biệt của hai bạn</p>
+              </div>
+
+              <form onSubmit={handleAddSpecialAnnivSubmit} className="space-y-4.5">
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-mono tracking-wider text-slate-500 uppercase block">TIÊU ĐỀ KỶ NIỆM</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={100}
+                    placeholder="Ví dụ: Lần đầu đi xem phim cùng nhau"
+                    value={newTitle}
+                    onChange={e => setNewTitle(e.target.value)}
+                    className="w-full bg-black border border-white/5 rounded-2xl py-3 px-4 text-xs text-slate-200 focus:outline-none focus:border-[#c5a059]/40 transition-colors"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-mono tracking-wider text-slate-500 uppercase block">NGÀY KỶ NIỆM</label>
+                    <input
+                      type="date"
+                      required
+                      value={newDate}
+                      onChange={e => setNewDate(e.target.value)}
+                      className="w-full bg-black border border-white/5 rounded-2xl py-3 px-4 text-xs text-slate-200 focus:outline-none focus:border-[#c5a059]/40 transition-colors font-mono"
+                    />
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-mono tracking-wider text-slate-500 uppercase block">HÌNH ẢNH ĐÍNH KÈM</label>
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handlePhotoUploadChange}
+                        className="hidden"
+                        id="anniv-photo-upload"
+                      />
+                      <label
+                        htmlFor="anniv-photo-upload"
+                        className="w-full bg-black border border-white/5 hover:border-white/10 rounded-2xl py-3 px-4 text-xs text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span className="truncate">{selectedPhotoPreview ? 'Đã chọn ảnh' : 'Chọn tệp'}</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedPhotoPreview && (
+                  <div className="aspect-[4/3] w-full rounded-2xl overflow-hidden border border-white/5 bg-black relative">
+                    <img src={selectedPhotoPreview} alt="Selected Preview" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => { setNewPhoto(''); setSelectedPhotoPreview(''); }}
+                      className="absolute top-2.5 right-2.5 p-1 rounded-full bg-black/60 text-slate-400 hover:text-slate-200"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-mono tracking-wider text-slate-500 uppercase block">GHI CHÚ / KÝ ỨC (TÙY CHỌN)</label>
+                  <textarea
+                    maxLength={1000}
+                    placeholder="Ghi lại cảm xúc hoặc ký ức của hai bạn tại đây..."
+                    value={newNotes}
+                    onChange={e => setNewNotes(e.target.value)}
+                    rows={3}
+                    className="w-full bg-black border border-white/5 rounded-2xl py-3 px-4 text-xs text-slate-200 focus:outline-none focus:border-[#c5a059]/40 transition-colors resize-none leading-relaxed"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !newTitle.trim() || !newDate}
+                  className="w-full bg-[#c5a059] hover:bg-[#b08b47] disabled:opacity-50 text-black font-semibold text-xs py-3.5 rounded-2xl transition-all shadow-lg active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang lưu...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Lưu kỷ niệm</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
+                </button>
+              </form>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
+
     </div>
   );
 }

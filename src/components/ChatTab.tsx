@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, Shield, Key, Eye, EyeOff, Check, FileCode2, Terminal, Info } from 'lucide-react';
+import { Send, Shield, Key, Eye, EyeOff, Check, FileCode2, Terminal, Info, Phone, Video } from 'lucide-react';
 import { EncryptedMessage, Partner } from '../types';
-import { encryptData, decryptData, exportKeyToHex } from '../lib/crypto';
+import { encryptData, decryptData } from '../lib/crypto';
+import useKeyHex from '../hooks/useKeyHex';
+import useDecryptedCollection from '../hooks/useDecryptedCollection';
 
 interface ChatTabProps {
   messages: EncryptedMessage[];
@@ -12,6 +14,7 @@ interface ChatTabProps {
   symmetricKey: CryptoKey | null;
   pairingCode: string;
   onSendMessage: (ciphertext: string, iv: string) => void;
+  onStartCall: (type: 'voice' | 'video') => void;
 }
 
 export default function ChatTab({
@@ -21,11 +24,10 @@ export default function ChatTab({
   partnerB,
   symmetricKey,
   pairingCode,
-  onSendMessage
+  onSendMessage,
+  onStartCall
 }: ChatTabProps) {
   const [text, setText] = useState<string>('');
-  const [keyHex, setKeyHex] = useState<string>('DERIVING...');
-  const [decryptedCache, setDecryptedCache] = useState<Record<string, string>>({});
   const [selectedMessage, setSelectedMessage] = useState<EncryptedMessage | null>(null);
   const [showRawSecret, setShowRawSecret] = useState<boolean>(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -33,32 +35,15 @@ export default function ChatTab({
   const localPartner = activePartner === 'A' ? partnerA : partnerB;
   const otherPartner = activePartner === 'A' ? partnerB : partnerA;
 
-  // Retrieve Key Hex for Crypto Inspector
-  useEffect(() => {
-    if (symmetricKey) {
-      exportKeyToHex(symmetricKey).then(hex => setKeyHex(hex));
-    }
-  }, [symmetricKey]);
+  // Retrieve Key Hex using the custom hook
+  const keyHex = useKeyHex(symmetricKey);
 
-  // Decrypt all messages client-side using the symmetricKey
-  useEffect(() => {
-    if (!symmetricKey) return;
-
-    const decryptAll = async () => {
-      const cache: Record<string, string> = {};
-      for (const msg of messages) {
-        if (decryptedCache[msg.id]) {
-          cache[msg.id] = decryptedCache[msg.id];
-          continue;
-        }
-        const decrypted = await decryptData(msg.ciphertext, msg.iv, symmetricKey);
-        cache[msg.id] = decrypted;
-      }
-      setDecryptedCache(cache);
-    };
-
-    decryptAll();
-  }, [messages, symmetricKey]);
+  // Decrypt all messages client-side using the custom hook
+  const decryptedCache = useDecryptedCollection(
+    messages,
+    symmetricKey,
+    async (msg, key) => decryptData(msg.ciphertext, msg.iv, key)
+  );
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -77,6 +62,40 @@ export default function ChatTab({
 
   return (
     <div className="flex flex-col h-full bg-[#080808] font-sans text-slate-100 overflow-hidden relative">
+      {/* Partner Header with Call Buttons */}
+      <div className="bg-[#0e0e0e] border-b border-white/5 py-3 px-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <img
+            src={otherPartner.avatar || 'https://images.unsplash.com/photo-1518199266791-5375a83190b7'}
+            alt={otherPartner.name}
+            className="w-9 h-9 rounded-full object-cover border border-white/10"
+          />
+          <div>
+            <h3 className="text-xs font-semibold text-slate-100">{otherPartner.name}</h3>
+            <span className="text-[9px] text-[#c5a059] flex items-center gap-1">
+              <span className="w-1.5 h-1.5 bg-[#c5a059] rounded-full animate-pulse" />
+              Đang kết nối
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => onStartCall('voice')}
+            className="p-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 text-slate-300 hover:text-slate-100 transition-all cursor-pointer"
+            title="Gọi thoại E2EE"
+          >
+            <Phone className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => onStartCall('video')}
+            className="p-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 text-slate-300 hover:text-slate-100 transition-all cursor-pointer"
+            title="Gọi video E2EE"
+          >
+            <Video className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
       {/* Top cryptographic safety banner */}
       <div className="bg-[#0e0e0e]/95 border-b border-white/5 py-2.5 px-4 flex items-center justify-between text-[10px] font-mono text-[#c5a059]">
         <div className="flex items-center gap-1.5">

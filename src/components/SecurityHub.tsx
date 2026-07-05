@@ -29,9 +29,11 @@ import {
   Volume2,
   Settings2
 } from 'lucide-react';
-import { exportKeyToHex } from '../lib/crypto';
 import { Partner } from '../types';
 import { initAuth, googleSignIn, logoutGoogle } from '../lib/googleApi';
+import useKeyHex from '../hooks/useKeyHex';
+import { compressAndResizeImage } from '../lib/image';
+import { storageHelper } from '../lib/storage';
 
 interface SecurityHubProps {
   pairingCode: string;
@@ -44,6 +46,9 @@ interface SecurityHubProps {
   onClearPasscode: () => void;
   onTriggerSetPasscode: () => void;
   onResetDatabase: (clean: boolean) => void;
+  onUpdateStorageMethod?: (partnerId: 'A' | 'B', storageMethod: 'p2p' | 'googledrive') => void;
+  storageMethodA?: 'p2p' | 'googledrive';
+  storageMethodB?: 'p2p' | 'googledrive';
 }
 
 const PRESET_AVATARS = [
@@ -74,18 +79,21 @@ export default function SecurityHub({
   onUpdateProfile,
   onClearPasscode,
   onTriggerSetPasscode,
-  onResetDatabase
+  onResetDatabase,
+  onUpdateStorageMethod,
+  storageMethodA,
+  storageMethodB
 }: SecurityHubProps) {
-  const [keyHex, setKeyHex] = useState<string>('DERIVING...');
+  const keyHex = useKeyHex(symmetricKey);
   const [diagnosticLogs, setDiagnosticLogs] = useState<string[]>([]);
   
   // Gemini API Key state
-  const [customApiKey, setCustomApiKey] = useState<string>(() => localStorage.getItem('custom_gemini_api_key') || '');
+  const [customApiKey, setCustomApiKey] = useState<string>(() => storageHelper.getItem<string>('custom_gemini_api_key', ''));
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [apiKeySuccess, setApiKeySuccess] = useState<boolean>(false);
 
   // WebAuthn state
-  const [hasWebAuthnRegistered, setHasWebAuthnRegistered] = useState<boolean>(() => !!localStorage.getItem('webauthn_credential_id'));
+  const [hasWebAuthnRegistered, setHasWebAuthnRegistered] = useState<boolean>(() => !!storageHelper.getItem<string>('webauthn_credential_id', ''));
 
   // Profile settings state
   const currentPartner = activePartner === 'A' ? partnerA : partnerB;
@@ -114,16 +122,12 @@ export default function SecurityHub({
   });
 
   useEffect(() => {
-    const savedInterval = localStorage.getItem(`sync_interval_${activePartner}`) || 'realtime';
+    const savedInterval = storageHelper.getItem<string>(`sync_interval_${activePartner}`, 'realtime');
     setSyncInterval(savedInterval);
 
-    const savedItems = localStorage.getItem(`sync_items_${activePartner}`);
+    const savedItems = storageHelper.getItem<any>(`sync_items_${activePartner}`, null);
     if (savedItems) {
-      try {
-        setSyncItems(JSON.parse(savedItems));
-      } catch (e) {
-        console.error(e);
-      }
+      setSyncItems(savedItems);
     } else {
       setSyncItems({
         photos: true,
@@ -138,7 +142,7 @@ export default function SecurityHub({
 
   const handleUpdateSyncInterval = (newInterval: string) => {
     setSyncInterval(newInterval);
-    localStorage.setItem(`sync_interval_${activePartner}`, newInterval);
+    storageHelper.setItem(`sync_interval_${activePartner}`, newInterval);
     
     setDiagnosticLogs(prev => [
       `[${new Date().toLocaleTimeString()}] Đã đổi tần suất đồng bộ thành: ${
@@ -154,7 +158,7 @@ export default function SecurityHub({
   const handleToggleSyncItem = (key: keyof typeof syncItems) => {
     const updated = { ...syncItems, [key]: !syncItems[key] };
     setSyncItems(updated);
-    localStorage.setItem(`sync_items_${activePartner}`, JSON.stringify(updated));
+    storageHelper.setItem(`sync_items_${activePartner}`, updated);
 
     const itemLabel = 
       key === 'photos' ? 'Hình ảnh' :
@@ -198,20 +202,17 @@ export default function SecurityHub({
   }, [activePartner, partnerA, partnerB]);
 
   useEffect(() => {
-    if (symmetricKey) {
-      exportKeyToHex(symmetricKey).then(hex => {
-        setKeyHex(hex);
-        setDiagnosticLogs([
-          `[${new Date().toLocaleTimeString()}] Khóa mật mã đã được tạo thành công qua hàm PBKDF2.`,
-          `[${new Date().toLocaleTimeString()}] Thuật toán mã hóa: AES-GCM 256-bit.`,
-          `[${new Date().toLocaleTimeString()}] Hệ thống E2EE sẵn sàng bảo mật tin nhắn & ảnh.`,
-          `[${new Date().toLocaleTimeString()}] Key Fingerprint: ${hex.substring(0, 16)}...`
-        ]);
-      });
+    if (symmetricKey && keyHex !== 'DERIVING...' && keyHex !== 'ERR_EXTRACT') {
+      setDiagnosticLogs([
+        `[${new Date().toLocaleTimeString()}] Khóa mật mã đã được tạo thành công qua hàm PBKDF2.`,
+        `[${new Date().toLocaleTimeString()}] Thuật toán mã hóa: AES-GCM 256-bit.`,
+        `[${new Date().toLocaleTimeString()}] Hệ thống E2EE sẵn sàng bảo mật tin nhắn & ảnh.`,
+        `[${new Date().toLocaleTimeString()}] Key Fingerprint: ${keyHex.substring(0, 16)}...`
+      ]);
     } else {
       setDiagnosticLogs([`[${new Date().toLocaleTimeString()}] Chờ thiết lập khóa mật mã...`]);
     }
-  }, [symmetricKey]);
+  }, [symmetricKey, keyHex]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -243,13 +244,23 @@ export default function SecurityHub({
   const handleAvatarUploadChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      if (file.size > 8 * 1024 * 1024) {
+        alert('Tệp hình ảnh quá lớn. Vui lòng chọn ảnh dưới 8MB.');
+        return;
+      }
       if (!file.type.startsWith('image/')) {
         alert('Vui lòng tải lên một tệp hình ảnh hợp lệ.');
         return;
       }
       const reader = new FileReader();
-      reader.onload = () => {
-        setProfileAvatar(reader.result as string);
+      reader.onload = async () => {
+        try {
+          const compressed = await compressAndResizeImage(reader.result as string, 800, 0.8);
+          setProfileAvatar(compressed);
+        } catch (err) {
+          console.warn('Error compressing avatar image', err);
+          setProfileAvatar(reader.result as string);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -257,7 +268,7 @@ export default function SecurityHub({
 
   const handleSaveApiKey = (e: React.FormEvent) => {
     e.preventDefault();
-    localStorage.setItem('custom_gemini_api_key', customApiKey.trim());
+    storageHelper.setItem('custom_gemini_api_key', customApiKey.trim());
     setApiKeySuccess(true);
     setTimeout(() => setApiKeySuccess(false), 2000);
     setDiagnosticLogs(prev => [
@@ -267,7 +278,7 @@ export default function SecurityHub({
   };
 
   const handleClearApiKey = () => {
-    localStorage.removeItem('custom_gemini_api_key');
+    storageHelper.removeItem('custom_gemini_api_key');
     setCustomApiKey('');
     setApiKeySuccess(true);
     setTimeout(() => setApiKeySuccess(false), 2000);
@@ -331,7 +342,7 @@ export default function SecurityHub({
         const binary = String.fromCharCode(...new Uint8Array(rawId));
         const base64Id = window.btoa(binary);
         
-        localStorage.setItem('webauthn_credential_id', base64Id);
+        storageHelper.setItem('webauthn_credential_id', base64Id);
         setHasWebAuthnRegistered(true);
         setDiagnosticLogs(prev => [
           `[${new Date().toLocaleTimeString()}] Đăng ký WebAuthn Face ID / Vân tay thành công! ID khóa: ${base64Id.substring(0, 15)}...`,
@@ -362,7 +373,7 @@ export default function SecurityHub({
   };
 
   const handleRemoveWebAuthn = () => {
-    localStorage.removeItem('webauthn_credential_id');
+    storageHelper.removeItem('webauthn_credential_id');
     setHasWebAuthnRegistered(false);
     setDiagnosticLogs(prev => [
       `[${new Date().toLocaleTimeString()}] Đã xoá liên kết khóa sinh trắc học WebAuthn trên thiết bị này.`,
@@ -604,7 +615,7 @@ export default function SecurityHub({
                   * Khóa được lưu trữ an toàn trong trình duyệt của bạn.
                 </div>
                 <div className="flex gap-2">
-                  {localStorage.getItem('custom_gemini_api_key') && (
+                  {storageHelper.getItem<string>('custom_gemini_api_key', '') && (
                     <button
                       type="button"
                       onClick={handleClearApiKey}
@@ -796,22 +807,22 @@ export default function SecurityHub({
               <div>
                 <span className="text-[8px] text-[#c5a059] font-mono uppercase block">PHƯƠNG THỨC HIỆN TẠI</span>
                 <h4 className="text-xs font-semibold text-slate-200 mt-0.5">
-                  {localStorage.getItem(`storage_method_${activePartner}`) === 'googledrive' 
+                  {storageHelper.getItem<string>(`storage_method_${activePartner}`, 'p2p') === 'googledrive' 
                     ? 'Đám mây Google Drive cá nhân' 
                     : 'Serverless P2P (Ngang hàng)'}
                 </h4>
               </div>
               <span className={`text-[8px] font-bold uppercase py-0.5 px-2 rounded-full border ${
-                localStorage.getItem(`storage_method_${activePartner}`) === 'googledrive'
+                storageHelper.getItem<string>(`storage_method_${activePartner}`, 'p2p') === 'googledrive'
                   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                   : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
               }`}>
-                {localStorage.getItem(`storage_method_${activePartner}`) === 'googledrive' ? 'Cloud Sync' : 'P2P Online'}
+                {storageHelper.getItem<string>(`storage_method_${activePartner}`, 'p2p') === 'googledrive' ? 'Cloud Sync' : 'P2P Online'}
               </span>
             </div>
 
             {/* Storage details depending on active selection */}
-            {localStorage.getItem(`storage_method_${activePartner}`) === 'googledrive' ? (
+            {storageHelper.getItem<string>(`storage_method_${activePartner}`, 'p2p') === 'googledrive' ? (
               <div className="space-y-3">
                 <div className="bg-black/20 border border-white/5 rounded-xl p-3 space-y-2 font-mono text-[9.5px]">
                   <div className="flex justify-between">
@@ -871,9 +882,9 @@ export default function SecurityHub({
               <span className="text-[10px] text-slate-400 font-sans">Đổi phương thức lưu trữ:</span>
               <button
                 onClick={() => {
-                  const current = localStorage.getItem(`storage_method_${activePartner}`);
+                  const current = storageHelper.getItem<string>(`storage_method_${activePartner}`, 'p2p');
                   const next = current === 'googledrive' ? 'p2p' : 'googledrive';
-                  localStorage.setItem(`storage_method_${activePartner}`, next);
+                  storageHelper.setItem(`storage_method_${activePartner}`, next);
                   
                   // Update storage method on server
                   fetch('/api/storage-method', {
@@ -887,7 +898,7 @@ export default function SecurityHub({
                 }}
                 className="text-[9.5px] text-[#c5a059] hover:underline cursor-pointer font-semibold"
               >
-                Chuyển sang {localStorage.getItem(`storage_method_${activePartner}`) === 'googledrive' ? 'P2P Online' : 'Google Drive Cloud'}
+                Chuyển sang {storageHelper.getItem<string>(`storage_method_${activePartner}`, 'p2p') === 'googledrive' ? 'P2P Online' : 'Google Drive Cloud'}
               </button>
             </div>
 

@@ -1,5 +1,6 @@
 export interface Partner {
   id: 'A' | 'B';
+  uid: string;
   name: string;
   avatar: string;
   publicKey?: string; // Base64 representation

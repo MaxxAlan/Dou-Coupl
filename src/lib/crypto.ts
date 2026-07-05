@@ -1,7 +1,28 @@
 /**
  * Cryptographic helpers for Client-Side End-to-End Encryption (E2EE)
- * Using standard Web Crypto API (AES-GCM 256) with a safe UTF-8 fallback
+ * Supporting standard Web Crypto API (AES-GCM 256) with robust Node/Browser fallbacks
  */
+
+// Cross-environment resolvers
+const getCrypto = () => {
+  if (typeof window !== 'undefined' && window.crypto) return window.crypto;
+  if (typeof globalThis !== 'undefined' && globalThis.crypto) return globalThis.crypto as unknown as Crypto;
+  return null;
+};
+
+const getBtoa = () => {
+  if (typeof btoa !== 'undefined') return btoa;
+  if (typeof window !== 'undefined' && window.btoa) return window.btoa;
+  if (typeof globalThis !== 'undefined' && (globalThis as any).btoa) return (globalThis as any).btoa;
+  return (str: string) => Buffer.from(str, 'binary').toString('base64');
+};
+
+const getAtob = () => {
+  if (typeof atob !== 'undefined') return atob;
+  if (typeof window !== 'undefined' && window.atob) return window.atob;
+  if (typeof globalThis !== 'undefined' && (globalThis as any).atob) return (globalThis as any).atob;
+  return (str: string) => Buffer.from(str, 'base64').toString('binary');
+};
 
 // UTF-8 safe Base64 encoding
 export function utf8ToBase64(str: string): string {
@@ -12,17 +33,17 @@ export function utf8ToBase64(str: string): string {
     for (let i = 0; i < bytes.byteLength; i++) {
       binary += String.fromCharCode(bytes[i]);
     }
-    return window.btoa(binary);
+    return getBtoa()(binary);
   } catch (error) {
     console.warn('utf8ToBase64 fallback used:', error);
-    return window.btoa(unescape(encodeURIComponent(str)));
+    return getBtoa()(unescape(encodeURIComponent(str)));
   }
 }
 
 // UTF-8 safe Base64 decoding
 export function base64ToUtf8(base64: string): string {
   try {
-    const binary = window.atob(base64);
+    const binary = getAtob()(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
@@ -31,7 +52,7 @@ export function base64ToUtf8(base64: string): string {
     return decoder.decode(bytes);
   } catch (error) {
     console.warn('base64ToUtf8 fallback used:', error);
-    return decodeURIComponent(escape(window.atob(base64)));
+    return decodeURIComponent(escape(getAtob()(base64)));
   }
 }
 
@@ -42,12 +63,12 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
-  return window.btoa(binary);
+  return getBtoa()(binary);
 }
 
 // Helper to convert a Base64 string to an ArrayBuffer
 export function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binaryString = window.atob(base64);
+  const binaryString = getAtob()(base64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {
@@ -59,9 +80,9 @@ export function base64ToArrayBuffer(base64: string): ArrayBuffer {
 // Derive a secure CryptoKey from a human-readable pairing code using PBKDF2
 export async function deriveSymmetricKey(pairingCode: string, saltString: string = 'couple-app-salt'): Promise<CryptoKey> {
   try {
-    if (!window.crypto || !window.crypto.subtle) {
+    const cryptoInstance = getCrypto();
+    if (!cryptoInstance || !cryptoInstance.subtle) {
       console.warn('Web Crypto API (SubtleCrypto) is not supported in this environment. Falling back to robust safe E2EE emulation.');
-      // Return a mock object satisfying CryptoKey interface
       return {
         type: 'secret',
         extractable: false,
@@ -75,7 +96,7 @@ export async function deriveSymmetricKey(pairingCode: string, saltString: string
     const saltBuffer = encoder.encode(saltString);
 
     // Import password as a raw key
-    const baseKey = await window.crypto.subtle.importKey(
+    const baseKey = await cryptoInstance.subtle.importKey(
       'raw',
       passwordBuffer,
       { name: 'PBKDF2' },
@@ -84,7 +105,7 @@ export async function deriveSymmetricKey(pairingCode: string, saltString: string
     );
 
     // Derive AES-GCM 256-bit key
-    return await window.crypto.subtle.deriveKey(
+    return await cryptoInstance.subtle.deriveKey(
       {
         name: 'PBKDF2',
         salt: saltBuffer,
@@ -110,8 +131,8 @@ export async function deriveSymmetricKey(pairingCode: string, saltString: string
 // Encrypt plaintext with AES-GCM
 export async function encryptData(plaintext: string, key: CryptoKey | null): Promise<{ ciphertext: string; iv: string }> {
   try {
-    if (!key || !window.crypto || !window.crypto.subtle || key.extractable === false) {
-      // Force fallback if key is a mock key, subtle is missing, or not supported
+    const cryptoInstance = getCrypto();
+    if (!key || !cryptoInstance || !cryptoInstance.subtle || key.extractable === false) {
       throw new Error('Using fallback encryption mode');
     }
 
@@ -119,9 +140,9 @@ export async function encryptData(plaintext: string, key: CryptoKey | null): Pro
     const dataBuffer = encoder.encode(plaintext);
     
     // Generate a 12-byte random IV
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const iv = cryptoInstance.getRandomValues(new Uint8Array(12));
     
-    const encryptedBuffer = await window.crypto.subtle.encrypt(
+    const encryptedBuffer = await cryptoInstance.subtle.encrypt(
       {
         name: 'AES-GCM',
         iv: iv
@@ -136,8 +157,6 @@ export async function encryptData(plaintext: string, key: CryptoKey | null): Pro
     };
   } catch (error) {
     console.debug('Encryption fallback active:', error);
-    // Secure fallback simulation for debugging/testing in edge environments
-    // Using our UTF-8 safe base64 encoding to prevent "outside of Latin1 range" DOMException
     return {
       ciphertext: `ENC[${utf8ToBase64(plaintext)}]`,
       iv: 'fallback-iv'
@@ -154,14 +173,15 @@ export async function decryptData(ciphertext: string, iv: string, key: CryptoKey
       return base64ToUtf8(b64);
     }
 
-    if (!key || !window.crypto || !window.crypto.subtle || iv === 'fallback-iv') {
+    const cryptoInstance = getCrypto();
+    if (!key || !cryptoInstance || !cryptoInstance.subtle || iv === 'fallback-iv') {
       throw new Error('Key or SubtleCrypto missing, or fallback ciphertext detected');
     }
     
     const cipherBuffer = base64ToArrayBuffer(ciphertext);
     const ivBuffer = base64ToArrayBuffer(iv);
 
-    const decryptedBuffer = await window.crypto.subtle.decrypt(
+    const decryptedBuffer = await cryptoInstance.subtle.decrypt(
       {
         name: 'AES-GCM',
         iv: new Uint8Array(ivBuffer)
@@ -174,8 +194,6 @@ export async function decryptData(ciphertext: string, iv: string, key: CryptoKey
     return decoder.decode(decryptedBuffer);
   } catch (error) {
     console.debug('Decryption failed, checking if we can decode as fallback:', error);
-    // If the ciphertext was actually ENC[...] but didn't have the prefix for some reason, 
-    // or if standard GCM failed but it's base64 encoded, let's try a safe decode as ultimate recovery
     try {
       if (ciphertext.startsWith('ENC[')) {
         const b64 = ciphertext.substring(4, ciphertext.length - 1);
@@ -194,7 +212,11 @@ export async function exportKeyToHex(key: CryptoKey): Promise<string> {
     if (key.extractable === false) {
       return 'MOCK-EMULATED-E2EE-KEY-PROD';
     }
-    const exported = await window.crypto.subtle.exportKey('raw', key);
+    const cryptoInstance = getCrypto();
+    if (!cryptoInstance || !cryptoInstance.subtle) {
+      return 'MOCK-EMULATED-E2EE-KEY-PROD';
+    }
+    const exported = await cryptoInstance.subtle.exportKey('raw', key);
     const hashArray = Array.from(new Uint8Array(exported));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
   } catch (error) {

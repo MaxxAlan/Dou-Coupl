@@ -67,6 +67,10 @@ Dự án được tối ưu hóa cho cả thiết bị di động (Mobile Web) v
 
 ## 🚀 Hướng Dẫn Cài Đặt & Chạy Cục Bộ (Local)
 
+
+# 🎥 Demo Video
+[![Duo Couple App Demo](https://github.com/user-attachments/assets/c30da2d6-15de-420f-bd6c-3fcb6f2c3493)](https://youtu.be/njZ_hRffWyM)
+
 ### 1. Cài đặt dependencies
 ```bash
 npm install

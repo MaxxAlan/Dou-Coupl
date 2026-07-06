@@ -16,7 +16,7 @@ export const DEMO_MESSAGES = [
   {
     id: 'seed-1',
     senderId: 'B',
-    ciphertext: 'ENC[Q2jDoG8gYW5oIHnDqnUhIENow7pjIGFuaCBtw7bMgXQgbmdhecyAIG5nb8GvdCBuZ2FvbyDwn4gK]', // Chào anh yêu! Chúc anh một ngày ngọt ngào 🌸
+    ciphertext: 'ENC[Q2jDoG8gYW5oIHnDqnUhIENow7pjIGFuaCBt4buZdCBuZ8OgeSBuZ+G7jXQgbmfDoG8g8J+MuA==]', // Chào anh yêu! Chúc anh một ngày ngọt ngào 🌸
     iv: 'fallback-iv',
     timestamp: Date.now() - 3600000 * 2,
     type: 'text'

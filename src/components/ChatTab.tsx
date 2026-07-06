@@ -19,7 +19,7 @@ interface ChatTabProps {
   partnerB: Partner;
   symmetricKey: CryptoKey | null;
   pairingCode: string;
-  onSendMessage: (ciphertext: string, iv: string) => void;
+  onSendMessage: (ciphertext: string, iv: string, type?: 'text' | 'voice', duration?: number) => void;
   onStartCall: (type: 'voice' | 'video') => void;
   onUploadPhoto?: (ciphertext: string, iv: string, isViewOnce: boolean, captionCiphertext?: string, captionIv?: string) => void;
   photos?: EncryptedPhoto[];
@@ -117,7 +117,7 @@ export default function ChatTab({
         reader.onloadend = async () => {
           const base64 = reader.result as string;
           const { ciphertext, iv } = await encryptData(base64, symmetricKey);
-          onSendMessage(ciphertext, iv);
+          onSendMessage(ciphertext, iv, 'voice', voiceDuration);
         };
         reader.readAsDataURL(blob);
         setVoiceDuration(0);
@@ -298,28 +298,40 @@ export default function ChatTab({
                     {msg.type === 'voice' ? (
                       <div
                         onClick={() => setSelectedMessage(msg)}
-                        className={`relative px-4 py-3 rounded-2xl text-[13px] cursor-pointer transition-all duration-150 flex items-center gap-2 ${
+                        className={`relative px-4 py-3 rounded-2xl text-[13px] cursor-pointer transition-all duration-150 ${
                           isMe
                             ? 'bg-[#211910] border border-[#c5a059]/30 hover:bg-[#2c2115] text-[#ebd4b3] rounded-br-none'
                             : 'bg-white/[0.03] hover:bg-white/[0.05] border border-white/5 text-slate-100 rounded-bl-none'
                         }`}
                       >
-                        <Music className="w-4 h-4 text-[#c5a059]" />
-                        <div className="flex items-center gap-2">
-                          <div className="flex gap-0.5">
-                            {Array.from({ length: 4 }).map((_, i) => (
-                              <motion.div
-                                key={i}
-                                animate={{ height: [6, 16, 8, 14, 6] }}
-                                transition={{ repeat: Infinity, duration: 0.8, delay: i * 0.15 }}
-                                className="w-0.5 bg-[#c5a059]/60 rounded-full"
-                              />
-                            ))}
+                        {msgText && msgText.startsWith('data:') ? (
+                          <audio
+                            src={msgText}
+                            controls
+                            preload="none"
+                            className="max-w-[220px] h-9"
+                            style={{ filter: 'invert(0.85) hue-rotate(180deg)' }}
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Music className="w-4 h-4 text-[#c5a059]" />
+                            <div className="flex items-center gap-2">
+                              <div className="flex gap-0.5">
+                                {Array.from({ length: 4 }).map((_, i) => (
+                                  <motion.div
+                                    key={i}
+                                    animate={{ height: [6, 16, 8, 14, 6] }}
+                                    transition={{ repeat: Infinity, duration: 0.8, delay: i * 0.15 }}
+                                    className="w-0.5 bg-[#c5a059]/60 rounded-full"
+                                  />
+                                ))}
+                              </div>
+                              <span className="text-[10px] font-mono text-slate-400">
+                                {msg.duration ? formatDuration(msg.duration) : '🎤'}
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-[10px] font-mono text-slate-400">
-                            {msg.duration ? formatDuration(msg.duration) : '🎤'}
-                          </span>
-                        </div>
+                        )}
                         {msg.isViewOnce && (
                           <Clock className="w-3 h-3 text-amber-400 ml-1" />
                         )}

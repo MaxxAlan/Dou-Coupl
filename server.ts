@@ -52,7 +52,8 @@ const messageSchema = z.object({
   senderId: z.enum(['A', 'B']),
   ciphertext: z.string().min(1).max(5000000), // Max 5MB
   iv: z.string().min(1).max(256),
-  type: z.enum(['text', 'image_ref']).optional()
+  type: z.enum(['text', 'image_ref', 'voice']).optional(),
+  duration: z.number().int().min(0).max(3600).optional()
 });
 
 const photoSchema = z.object({
@@ -427,7 +428,7 @@ app.post('/api/messages', authMiddleware, async (req, res, next) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
     }
-    const { senderId, ciphertext, iv, type } = parsed.data;
+    const { senderId, ciphertext, iv, type, duration } = parsed.data;
     // IDOR prevention: validate senderId against partner identity
     const partnerId = req.headers['x-partner-id'];
     if (partnerId && (partnerId === 'A' || partnerId === 'B') && senderId !== partnerId) {
@@ -440,7 +441,8 @@ app.post('/api/messages', authMiddleware, async (req, res, next) => {
       ciphertext,
       iv,
       timestamp: Date.now(),
-      type: type || 'text'
+      type: type || 'text',
+      duration
     };
 
     await updateDatabase(db => {

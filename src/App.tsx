@@ -171,10 +171,13 @@ export default function App() {
       if (data.type === 'text') {
         let payload = data.payload;
         let iv = 'p2p-iv';
+        let msgType: 'text' | 'voice' = 'text';
+        let duration: number | undefined;
         if (typeof payload === 'string') {
           try {
             const parsed = JSON.parse(payload);
             if (parsed.ciphertext) { payload = parsed.ciphertext; iv = parsed.iv || 'p2p-iv'; }
+            if (parsed.type === 'voice') { msgType = 'voice'; duration = parsed.duration; }
           } catch {}
         }
         const newMsg: EncryptedMessage = {
@@ -183,7 +186,8 @@ export default function App() {
           ciphertext: payload,
           iv,
           timestamp: data.timestamp,
-          type: 'text'
+          type: msgType,
+          duration
         };
         setMessages(prev => {
           if (prev.some(m => m.id === newMsg.id)) return prev;
@@ -707,14 +711,14 @@ export default function App() {
     }
   };
 
-  const handleSendMessage = async (ciphertext: string, iv: string) => {
+  const handleSendMessage = async (ciphertext: string, iv: string, type: 'text' | 'voice' = 'text', duration?: number) => {
     if (!coupleData?.pairingCode) return;
     if (p2pStatus === 'connected') {
-      p2pChannel.sendText(JSON.stringify({ ciphertext, iv }));
+      p2pChannel.sendText(JSON.stringify({ ciphertext, iv, type, duration }));
       return;
     }
     try {
-      await apiClient.postMessage(coupleData.pairingCode, activePartner, ciphertext, iv);
+      await apiClient.postMessage(coupleData.pairingCode, activePartner, ciphertext, iv, type, duration);
     } catch (e) {
       console.error('Failed to send message:', e);
       triggerNotification('Lỗi gửi tin nhắn', 'Không thể gửi tin nhắn, vui lòng thử lại sau.', 'error');
@@ -753,7 +757,13 @@ export default function App() {
   const handleAddWaterLog = async (partnerId: 'A' | 'B', amount: number) => {
     if (!coupleData?.pairingCode) return;
     try {
-      await apiClient.addWaterLog(coupleData.pairingCode, partnerId, amount);
+      const response = await apiClient.addWaterLog(coupleData.pairingCode, partnerId, amount);
+      if (response?.waterLog) {
+        setWaterLogs(prev => {
+          if (prev.some(w => w.id === response.waterLog.id)) return prev;
+          return [...prev, response.waterLog];
+        });
+      }
     } catch (e) {
       console.error('Failed to add water log:', e);
     }

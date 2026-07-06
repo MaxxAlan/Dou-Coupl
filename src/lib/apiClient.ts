@@ -69,11 +69,11 @@ export const apiClient = {
   },
 
   // 2. Post a secure message
-  postMessage: async (pairingCode: string, senderId: 'A' | 'B', ciphertext: string, iv: string, type: 'text' | 'image_ref' = 'text') => {
+  postMessage: async (pairingCode: string, senderId: 'A' | 'B', ciphertext: string, iv: string, type: 'text' | 'image_ref' | 'voice' = 'text', duration?: number) => {
     return request('/api/messages', {
       method: 'POST',
       headers: { 'X-Pairing-Code': pairingCode },
-      body: JSON.stringify({ senderId, ciphertext, iv, type }),
+      body: JSON.stringify({ senderId, ciphertext, iv, type, duration }),
       partnerId: senderId
     });
   },

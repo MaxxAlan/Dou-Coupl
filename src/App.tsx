@@ -1574,7 +1574,7 @@ export default function App() {
 
   return (
     <I18nProvider localeData={localeData}>
-    <div className="min-h-screen bg-[#080808] font-sans flex flex-col text-slate-100 overflow-hidden relative select-none">
+    <div className="h-screen bg-[#080808] font-sans flex flex-col text-slate-100 overflow-hidden relative select-none">
       
       {/* Background decorations */}
       <div className="absolute inset-0 opacity-15 pointer-events-none overflow-hidden">

@@ -353,9 +353,12 @@ function validateSenderId(senderId: string, state: any): boolean {
 // Event Stream (SSE) for Realtime updates. Uses header-only auth (no query param leakage).
 app.get('/api/events', async (req, res, next) => {
   try {
-    const clientCode = req.headers['x-pairing-code'];
+    let clientCode = req.headers['x-pairing-code'];
+    if (!clientCode && req.query.pairingCode && typeof req.query.pairingCode === 'string') {
+      clientCode = req.query.pairingCode;
+    }
     if (!clientCode || typeof clientCode !== 'string') {
-      return res.status(401).json({ error: 'Unauthorized: Missing X-Pairing-Code header' });
+      return res.status(401).json({ error: 'Unauthorized: Missing X-Pairing-Code header or query param' });
     }
     if (!PAIRING_CODE_REGEX.test(clientCode)) {
       return res.status(400).json({ error: 'Invalid X-Pairing-Code format' });

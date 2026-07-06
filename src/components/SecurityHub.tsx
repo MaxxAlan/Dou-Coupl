@@ -420,16 +420,6 @@ export default function SecurityHub({
           <span className="text-[8px] bg-black px-2 py-1 rounded border border-white/5 text-slate-400 font-mono">CLIENT-ONLY</span>
         </div>
 
-        {/* LANGUAGE SETTINGS */}
-        <div className="space-y-2">
-          <h3 className="text-[9px] font-mono text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-            <Globe className="w-3.5 h-3.5 text-[#c5a059]" />
-            <span>NGÔN NGỮ & HIỂN THỊ</span>
-          </h3>
-          <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-3">
-            <LanguageSwitcher />
-          </div>
-        </div>
 
         {/* ACCOUNT SETTINGS SECTION (Edit Name, Avatar & Switch Identity info) */}
         <div className="space-y-3">
@@ -1137,6 +1127,17 @@ export default function SecurityHub({
               </div>
             </div>
 
+          </div>
+        </div>
+
+        {/* LANGUAGE SETTINGS */}
+        <div className="space-y-2">
+          <h3 className="text-[9px] font-mono text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+            <Globe className="w-3.5 h-3.5 text-[#c5a059]" />
+            <span>NGÔN NGỮ & HIỂN THỊ</span>
+          </h3>
+          <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-3">
+            <LanguageSwitcher />
           </div>
         </div>
 

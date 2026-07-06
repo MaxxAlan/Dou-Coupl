@@ -3,7 +3,10 @@
 
 import { getItem, setItem } from './storage';
 
-export const BASE_URL = 'https://dou-coupl.onrender.com';
+export const BASE_URL = typeof window !== 'undefined' && 
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? window.location.origin
+  : 'https://dou-coupl.onrender.com';
 
 // Generate nonce for replay attack prevention
 function generateNonce(): string {

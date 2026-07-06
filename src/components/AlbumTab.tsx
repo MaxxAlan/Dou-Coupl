@@ -147,6 +147,7 @@ export default function AlbumTab({
   const [driveType, setDriveType] = useState<'images' | 'documents'>('images');
   const [driveFiles, setDriveFiles] = useState<GoogleDriveFile[]>([]);
   const [photosItems, setPhotosItems] = useState<GooglePhotoItem[]>([]);
+  const [photosThumbnails, setPhotosThumbnails] = useState<Record<string, string>>({});
   const [isLoadingGoogle, setIsLoadingGoogle] = useState<boolean>(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
   const [activeDocPreview, setActiveDocPreview] = useState<GoogleDriveFile | null>(null);
@@ -468,6 +469,20 @@ export default function AlbumTab({
     try {
       const items = await listGooglePhotos(activePartner);
       setPhotosItems(items);
+      // Pre-fetch thumbnails with auth headers for display
+      const thumbMap: Record<string, string> = {};
+      for (const item of items) {
+        try {
+          const res = await fetch(item.baseUrl, {
+            headers: googleToken ? { Authorization: `Bearer ${googleToken}` } : {}
+          });
+          if (res.ok) {
+            const blob = await res.blob();
+            thumbMap[item.id] = URL.createObjectURL(blob);
+          }
+        } catch {}
+      }
+      setPhotosThumbnails(thumbMap);
     } catch (err: any) {
       // Graceful fallback for non-whitelisted or un-enabled test credentials on standard Photos API
       console.warn('Photos API unavailable. Active fallback presets activated.');
@@ -1398,7 +1413,13 @@ export default function AlbumTab({
                                         onClick={() => handleSelectGoogleImage(item.baseUrl)}
                                         className="aspect-square border border-white/5 rounded-xl bg-black overflow-hidden relative cursor-pointer"
                                       >
-                                        <img src={item.baseUrl} alt="Google Photo" className="w-full h-full object-cover" />
+                                        {photosThumbnails[item.id] ? (
+                                          <img src={photosThumbnails[item.id]} alt={item.filename} className="w-full h-full object-cover" />
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center bg-black">
+                                            <RefreshCw className="w-4 h-4 text-slate-600 animate-spin" />
+                                          </div>
+                                        )}
                                       </button>
                                     ))}
                                   </div>

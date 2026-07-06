@@ -27,7 +27,12 @@ import {
   ShieldAlert,
   Key,
   Droplet,
-  RotateCcw
+  RotateCcw,
+  Search,
+  Book,
+  LayoutGrid,
+  Filter,
+  Sparkles
 } from 'lucide-react';
 import { EncryptedPhoto, Partner, WaterLog } from '../types';
 import { encryptData, decryptData } from '../lib/crypto';
@@ -46,7 +51,7 @@ import {
 } from '../lib/googleApi';
 import useKeyHex from '../hooks/useKeyHex';
 import useDecryptedCollection from '../hooks/useDecryptedCollection';
-import { compressAndResizeImage } from '../lib/image';
+import { compressAndResizeImage, applyFilterToImage, downloadAsPng, FILTER_PRESETS, type PhotoFilter } from '../lib/image';
 import { storageHelper } from '../lib/storage';
 import { useT } from '../lib/i18n';
 
@@ -153,6 +158,13 @@ export default function AlbumTab({
   const [cameraError, setCameraError] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // PTB photo filter states
+  const [currentFilter, setCurrentFilter] = useState<PhotoFilter>('normal');
+
+  // Search & Photobook states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'photobook'>('grid');
 
   // Hydration verification camera states
   const [pendingWaterDrink, setPendingWaterDrink] = useState<{ amount: number } | null>(null);
@@ -373,10 +385,50 @@ export default function AlbumTab({
       if (ctx) {
         canvas.width = video.videoWidth || 400;
         canvas.height = video.videoHeight || 400;
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        const preset = FILTER_PRESETS.find(f => f.id === currentFilter);
+        if (preset && preset.cssFilter !== 'none') ctx.filter = preset.cssFilter;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg');
+        ctx.filter = 'none';
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
         setSelectedFile(dataUrl);
         stopCamera();
+      }
+    }
+  };
+
+  // Capture & encrypt direct from camera
+  const takeAndSendSnapshot = async () => {
+    if (videoRef.current && canvasRef.current && symmetricKey) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        canvas.width = video.videoWidth || 400;
+        canvas.height = video.videoHeight || 400;
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        const preset = FILTER_PRESETS.find(f => f.id === currentFilter);
+        if (preset && preset.cssFilter !== 'none') ctx.filter = preset.cssFilter;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.filter = 'none';
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
+        stopCamera();
+
+        const compressed = await compressAndResizeImage(dataUrl, 1600, 0.8);
+        const { ciphertext, iv } = await encryptData(compressed, symmetricKey);
+        const capCiphertext = caption.trim()
+          ? (await encryptData(caption, symmetricKey)).ciphertext
+          : undefined;
+        const capIv = caption.trim()
+          ? (await encryptData(caption, symmetricKey)).iv
+          : undefined;
+        onUploadPhoto(ciphertext, iv, false, capCiphertext, capIv);
+        setCaption('');
+        setIsModalOpen(false);
       }
     }
   };
@@ -734,6 +786,32 @@ export default function AlbumTab({
           </div>
         </div>
 
+        {/* Search & View Toolbar */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex-1 relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Tìm kiếm ảnh theo chú thích, ngày..."
+              className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-2 pl-8 pr-3 text-[11px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#c5a059]/40 transition-all"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => setViewMode(viewMode === 'grid' ? 'photobook' : 'grid')}
+            className="p-2 rounded-xl bg-white/[0.03] border border-white/5 hover:border-[#c5a059]/30 text-slate-400 hover:text-[#c5a059] transition-all"
+            title={viewMode === 'grid' ? 'Chuyển sang Photobook' : 'Chuyển sang Grid'}
+          >
+            {viewMode === 'grid' ? <Book className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
+          </button>
+        </div>
+
         {photos.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 py-24">
             <motion.div
@@ -749,82 +827,144 @@ export default function AlbumTab({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
-            {photos.map(photo => {
-              const isSender = photo.senderId === activePartner;
-              const decrypted = decryptedImages[photo.id];
-              const sender = photo.senderId === 'A' ? partnerA : partnerB;
-
+          (() => {
+            const filteredPhotos = searchQuery
+              ? photos.filter(photo => {
+                  const d = decryptedImages[photo.id];
+                  const captionMatch = d?.caption?.toLowerCase().includes(searchQuery.toLowerCase());
+                  const dateMatch = new Date(photo.timestamp).toLocaleDateString().includes(searchQuery);
+                  const senderMatch = (photo.senderId === 'A' ? partnerA.name : partnerB.name).toLowerCase().includes(searchQuery.toLowerCase());
+                  return captionMatch || dateMatch || senderMatch;
+                })
+              : photos;
+            if (filteredPhotos.length === 0) {
               return (
-                <motion.div
-                  key={photo.id}
-                  whileHover={{ y: -3 }}
-                  onClick={() => handleViewPhoto(photo)}
-                  className="relative aspect-square rounded-2xl overflow-hidden bg-black border border-white/5 shadow-md cursor-pointer group"
-                >
-                  {decrypted ? (
-                    <>
-                      {/* Actual image (decrypted client-side!) */}
-                      {decrypted.src === 'LOCKED_DRIVE' ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black p-4 text-center">
-                          <HardDrive className="w-8 h-8 text-[#c5a059] mb-2 animate-bounce" />
-                          <span className="text-[11px] font-medium text-slate-100">Cần Google Drive</span>
-                          <span className="text-[9px] text-[#c5a059]/60 mt-1">Đăng nhập Google để xem</span>
-                        </div>
-                      ) : photo.isViewOnce && !isSender ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black p-4 text-center">
-                          <Clock className="w-8 h-8 text-[#c5a059] mb-2 animate-pulse" />
-                          <span className="text-[11px] font-medium text-slate-100">Ảnh xem 1 lần</span>
-                          <span className="text-[9px] text-slate-400 mt-1">Gửi bởi {sender.name}</span>
-                        </div>
+                <div className="text-center py-16 text-slate-500">
+                  <Search className="w-8 h-8 mx-auto mb-3 text-slate-600" />
+                  <p className="text-[11px]">Không tìm thấy ảnh phù hợp</p>
+                </div>
+              );
+            }
+            if (viewMode === 'photobook') {
+              const groupedByDate: Record<string, EncryptedPhoto[]> = {};
+              for (const p of filteredPhotos) {
+                const d = new Date(p.timestamp).toDateString();
+                if (!groupedByDate[d]) groupedByDate[d] = [];
+                groupedByDate[d].push(p);
+              }
+              return (
+                <div className="space-y-6">
+                  {Object.entries(groupedByDate).sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime()).map(([dateStr, datePhotos]) => (
+                    <div key={dateStr}>
+                      <div className="flex items-center gap-2 mb-2.5">
+                        <div className="h-px flex-1 bg-white/5" />
+                        <span className="text-[9px] font-mono text-slate-500 shrink-0 px-2">{dateStr}</span>
+                        <div className="h-px flex-1 bg-white/5" />
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {datePhotos.sort((a, b) => b.timestamp - a.timestamp).map(photo => {
+                          const isSender = photo.senderId === activePartner;
+                          const decrypted = decryptedImages[photo.id];
+                          const sender = photo.senderId === 'A' ? partnerA : partnerB;
+                          return (
+                            <motion.div
+                              key={photo.id}
+                              whileHover={{ y: -2 }}
+                              onClick={() => handleViewPhoto(photo)}
+                              className="relative aspect-square rounded-xl overflow-hidden bg-black border border-white/5 shadow-sm cursor-pointer group"
+                            >
+                              {decrypted && decrypted.src !== 'LOCKED_DRIVE' && !(photo.isViewOnce && !isSender) ? (
+                                <img src={decrypted.src} alt="" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                              ) : (
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                                  <Lock className="w-5 h-5 text-slate-500" />
+                                </div>
+                              )}
+                              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+                                {decrypted?.caption && <p className="text-[9px] text-slate-200 truncate">{decrypted.caption}</p>}
+                                <p className="text-[7px] text-slate-500 font-mono">{sender.name}</p>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            }
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
+                {filteredPhotos.map(photo => {
+                  const isSender = photo.senderId === activePartner;
+                  const decrypted = decryptedImages[photo.id];
+                  const sender = photo.senderId === 'A' ? partnerA : partnerB;
+
+                  return (
+                    <motion.div
+                      key={photo.id}
+                      whileHover={{ y: -3 }}
+                      onClick={() => handleViewPhoto(photo)}
+                      className="relative aspect-square rounded-2xl overflow-hidden bg-black border border-white/5 shadow-md cursor-pointer group"
+                    >
+                      {decrypted ? (
+                        <>
+                          {decrypted.src === 'LOCKED_DRIVE' ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black p-4 text-center">
+                              <HardDrive className="w-8 h-8 text-[#c5a059] mb-2 animate-bounce" />
+                              <span className="text-[11px] font-medium text-slate-100">Cần Google Drive</span>
+                              <span className="text-[9px] text-[#c5a059]/60 mt-1">Đăng nhập Google để xem</span>
+                            </div>
+                          ) : photo.isViewOnce && !isSender ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black p-4 text-center">
+                              <Clock className="w-8 h-8 text-[#c5a059] mb-2 animate-pulse" />
+                              <span className="text-[11px] font-medium text-slate-100">Ảnh xem 1 lần</span>
+                              <span className="text-[9px] text-slate-400 mt-1">Gửi bởi {sender.name}</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={decrypted.src}
+                              alt="Encrypted Memory"
+                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                              referrerPolicy="no-referrer"
+                            />
+                          )}
+
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/30 to-transparent p-2.5 flex items-end justify-between">
+                            <div className="overflow-hidden pr-2">
+                              {decrypted.caption && (
+                                <p className="text-[11px] font-medium truncate text-slate-200">{decrypted.caption}</p>
+                              )}
+                              <p className="text-[9px] text-slate-500 font-mono">Gửi bởi {sender.name}</p>
+                            </div>
+                            {photo.isViewOnce && (
+                              <span className="shrink-0 bg-[#c5a059]/20 text-[#ebd4b3] border border-[#c5a059]/30 text-[8px] px-1.5 py-0.5 rounded font-mono uppercase">
+                                1 LẦN
+                              </span>
+                            )}
+                          </div>
+                        </>
                       ) : (
-                        <img
-                          src={decrypted.src}
-                          alt="Encrypted Memory"
-                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          referrerPolicy="no-referrer"
-                        />
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black">
+                          <Lock className="w-5 h-5 text-slate-600 animate-pulse" />
+                          <span className="text-[10px] text-slate-500 mt-1 font-mono">Đang giải mã...</span>
+                        </div>
                       )}
 
-                      {/* Info overlay */}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/30 to-transparent p-2.5 flex items-end justify-between">
-                        <div className="overflow-hidden pr-2">
-                          {decrypted.caption && (
-                            <p className="text-[11px] font-medium truncate text-slate-200">{decrypted.caption}</p>
-                          )}
-                          <p className="text-[9px] text-slate-500 font-mono">Gửi bởi {sender.name}</p>
-                        </div>
-                        {photo.isViewOnce && (
-                          <span className="shrink-0 bg-[#c5a059]/20 text-[#ebd4b3] border border-[#c5a059]/30 text-[8px] px-1.5 py-0.5 rounded font-mono uppercase">
-                            1 LẦN
-                          </span>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    /* Decrypting skeleton placeholder */
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black">
-                      <Lock className="w-5 h-5 text-slate-600 animate-pulse" />
-                      <span className="text-[10px] text-slate-500 mt-1 font-mono">Đang giải mã...</span>
-                    </div>
-                  )}
-
-                  {/* Manual delete icon for owner */}
-                  {isSender && (
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        onDeletePhoto(photo.id);
-                      }}
-                      className="absolute top-2.5 right-2.5 p-1.5 rounded-full bg-black/70 border border-white/10 text-slate-400 hover:text-red-400 hover:bg-black opacity-0 group-hover:opacity-100 transition-all"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </motion.div>
-              );
-            })}
-          </div>
+                      {isSender && (
+                        <button
+                          onClick={e => { e.stopPropagation(); onDeletePhoto(photo.id); }}
+                          className="absolute top-2.5 right-2.5 p-1.5 rounded-full bg-black/70 border border-white/10 text-slate-400 hover:text-red-400 hover:bg-black opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </div>
+            );
+          })()
         )}
       </div>
 
@@ -1042,23 +1182,55 @@ export default function AlbumTab({
                           </div>
                         ) : (
                           <div className="w-full flex flex-col items-center space-y-3">
-                            <div className="aspect-square w-full max-w-[200px] rounded-xl overflow-hidden border border-[#c5a059]/30 bg-black relative">
+                            <div className="aspect-square w-full max-w-[220px] rounded-xl overflow-hidden border border-[#c5a059]/30 bg-black relative">
                               <video
                                 ref={videoRef}
                                 autoPlay
                                 playsInline
                                 muted
                                 className="w-full h-full object-cover scale-x-[-1]"
+                                style={{ filter: FILTER_PRESETS.find(f => f.id === currentFilter)?.cssFilter }}
                               />
                               <canvas ref={canvasRef} className="hidden" />
+                              <div className="absolute bottom-2 left-2 bg-black/60 text-[8px] text-white px-2 py-0.5 rounded-full font-mono">
+                                {FILTER_PRESETS.find(f => f.id === currentFilter)?.label}
+                              </div>
                             </div>
-                            <button
-                              onClick={takeSnapshot}
-                              className="bg-[#c5a059] hover:bg-[#b08b47] text-black font-semibold text-xs py-2 px-6 rounded-full shadow-md flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <Camera className="w-4 h-4" />
-                              <span>Chụp ảnh ngay</span>
-                            </button>
+
+                            {/* Filter selector */}
+                            <div className="flex gap-1.5 flex-wrap justify-center max-w-[260px]">
+                              {FILTER_PRESETS.map(f => (
+                                <button
+                                  key={f.id}
+                                  onClick={() => setCurrentFilter(f.id)}
+                                  className={`px-2.5 py-1 rounded-full text-[9px] font-medium transition-all cursor-pointer ${
+                                    currentFilter === f.id
+                                      ? 'bg-[#c5a059] text-black'
+                                      : 'bg-white/5 text-slate-400 hover:text-slate-200 border border-white/10'
+                                  }`}
+                                >
+                                  <Filter className="w-2.5 h-2.5 inline mr-1" />
+                                  {f.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={takeSnapshot}
+                                className="bg-[#c5a059] hover:bg-[#b08b47] text-black font-semibold text-xs py-2 px-5 rounded-full shadow-md flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Camera className="w-4 h-4" />
+                                <span>Chụp ảnh</span>
+                              </button>
+                              <button
+                                onClick={takeAndSendSnapshot}
+                                className="bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs py-2 px-5 rounded-full shadow-md flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <UploadCloud className="w-4 h-4" />
+                                <span>Chụp & Gửi</span>
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1472,7 +1644,7 @@ export default function AlbumTab({
             </div>
 
             {/* Bottom info section */}
-            <div className="p-5 border-t border-white/5 bg-white/[0.01] text-center space-y-1 select-none">
+            <div className="p-5 border-t border-white/5 bg-white/[0.01] text-center space-y-2 select-none">
               <p className="text-xs font-medium text-slate-300 font-sans">
                 Gửi bởi {activePhotoView.senderId === 'A' ? partnerA.name : partnerB.name}
               </p>
@@ -1483,6 +1655,18 @@ export default function AlbumTab({
                 <p className="text-[9px] text-[#c5a059] font-medium font-mono uppercase tracking-wider mt-1.5 animate-pulse">
                   ⚠️ Sau khi tắt màn hình này, ảnh sẽ biến mất mãi mãi!
                 </p>
+              )}
+              {decryptedImages[activePhotoView.id]?.src && decryptedImages[activePhotoView.id].src !== 'LOCKED_DRIVE' && !activePhotoView.isViewOnce && (
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    downloadAsPng(decryptedImages[activePhotoView.id].src, `Duo_${activePhotoView.senderId}_${new Date(activePhotoView.timestamp).toISOString().split('T')[0]}.png`);
+                  }}
+                  className="inline-flex items-center gap-1.5 bg-white/5 hover:bg-[#c5a059]/15 border border-white/10 hover:border-[#c5a059]/30 text-slate-400 hover:text-[#c5a059] text-[10px] px-3 py-1.5 rounded-full transition-all cursor-pointer"
+                >
+                  <Download className="w-3 h-3" />
+                  <span>Tải xuống PNG</span>
+                </button>
               )}
             </div>
           </motion.div>

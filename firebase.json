@@ -25,7 +25,7 @@
       "emailPassword": true,
       "googleSignIn": {
         "oAuthBrandDisplayName": "Dou-Coupl",
-        "supportEmail": "scaln.024@gmail.com"
+        "supportEmail": "support@example.com"
       }
     }
   }

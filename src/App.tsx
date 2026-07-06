@@ -52,7 +52,7 @@ import { useOnlineStatus } from './hooks/useOnlineStatus';
 import OfflineScreen from './components/OfflineScreen';
 import themeMusicSrc from '@/assets/audio/DaNhuTa.mp3';
 import { useThemeMusic } from './hooks/useThemeMusic';
-import { I18nProvider } from './lib/i18n';
+import { I18nProvider, useT } from './lib/i18n';
 import { localeData } from './locales';
 
 // Import Custom Components
@@ -77,6 +77,7 @@ const PRESET_AVATARS = [
 ];
 
 export default function App() {
+  const t = useT();
   // Firebase Auth & User States
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
@@ -1419,11 +1420,11 @@ export default function App() {
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-[#c5a059] animate-pulse" />
             <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#c5a059] font-sans font-semibold">
-              {activeTab === 'anniversary' && 'DUO · Kỷ niệm'}
-              {activeTab === 'chat' && 'DUO · Trò chuyện'}
-              {activeTab === 'album' && 'DUO · Locket'}
-              {activeTab === 'reminders' && 'DUO · Kế hoạch'}
-              {activeTab === 'security' && 'DUO · Bảo mật'}
+              {activeTab === 'anniversary' && t('header.anniversary')}
+              {activeTab === 'chat' && t('header.chat')}
+              {activeTab === 'album' && t('header.album')}
+              {activeTab === 'reminders' && t('header.reminders')}
+              {activeTab === 'security' && t('header.security')}
             </h2>
           </div>
 
@@ -1544,11 +1545,11 @@ export default function App() {
         {/* Navigation bottom bar */}
         <div className="h-16 bg-[#0e0e0e]/95 border-t border-white/5 px-4 flex justify-around items-center shrink-0 select-none pb-2">
           {[
-            { id: 'anniversary', icon: <Heart className="w-5 h-5" />, label: 'Ngày yêu' },
-            { id: 'chat', icon: <MessageCircle className="w-5 h-5" />, label: 'Chat' },
-            { id: 'album', icon: <ImageIcon className="w-5 h-5" />, label: 'Locket' },
-            { id: 'reminders', icon: <CheckSquare className="w-5 h-5" />, label: 'Kế hoạch' },
-            { id: 'security', icon: <Shield className="w-5 h-5" />, label: 'Bảo mật' }
+            { id: 'anniversary', icon: <Heart className="w-5 h-5" />, label: t('tab.anniversary') },
+            { id: 'chat', icon: <MessageCircle className="w-5 h-5" />, label: t('tab.chat') },
+            { id: 'album', icon: <ImageIcon className="w-5 h-5" />, label: t('tab.album') },
+            { id: 'reminders', icon: <CheckSquare className="w-5 h-5" />, label: t('tab.reminders') },
+            { id: 'security', icon: <Shield className="w-5 h-5" />, label: t('tab.security') }
           ].map(tab => (
             <button
               key={tab.id}

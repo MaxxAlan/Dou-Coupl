@@ -152,5 +152,13 @@
 
   "language.title": "LANGUAGE & DISPLAY",
   "language.switch": "Switch language",
-  "language.label": "Language"
+  "language.label": "Language",
+
+  "water.title": "Hydration Hub",
+  "water.progress": "Today's Hydration Progress",
+  "water.undo": "Undo",
+  "water.quick_add": "Quick Check-in",
+  "water.verify_popup": "Hydration Verification",
+  "water.verify_photo": "Photo Verification 📸",
+  "water.verify_fast": "Quick Log ⚡"
 }

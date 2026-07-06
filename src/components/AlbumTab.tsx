@@ -48,6 +48,7 @@ import useKeyHex from '../hooks/useKeyHex';
 import useDecryptedCollection from '../hooks/useDecryptedCollection';
 import { compressAndResizeImage } from '../lib/image';
 import { storageHelper } from '../lib/storage';
+import { useT } from '../lib/i18n';
 
 interface AlbumTabProps {
   photos: EncryptedPhoto[];
@@ -80,6 +81,7 @@ export default function AlbumTab({
   onAddWaterLog,
   onDeleteWaterLog
 }: AlbumTabProps) {
+  const t = useT();
   // --- HYDRATION HUB CALCULATIONS ---
   const todayStr = new Date().toDateString();
   const todayLogs = waterLogs.filter(log => new Date(log.timestamp).toDateString() === todayStr);
@@ -620,8 +622,8 @@ export default function AlbumTab({
                 <Droplet className="w-4 h-4 fill-blue-400/20" />
               </div>
               <div>
-                <h3 className="text-xs font-semibold text-slate-200">Trạm Cấp Nước</h3>
-                <p className="text-[10px] text-slate-400">Mục tiêu: {goal}ml mỗi ngày</p>
+                <h3 className="text-xs font-semibold text-slate-200">{t('water.title')}</h3>
+                <p className="text-[10px] text-slate-400">{t('water.progress')}: {goal}ml</p>
               </div>
             </div>
             {lastMyLog && (
@@ -631,7 +633,7 @@ export default function AlbumTab({
                 title="Hoàn tác lần uống gần nhất"
               >
                 <RotateCcw className="w-3 h-3" />
-                <span>Hoàn tác ({lastMyLog.amount}ml)</span>
+                <span>{t('water.undo')} ({lastMyLog.amount}ml)</span>
               </button>
             )}
           </div>
@@ -686,7 +688,7 @@ export default function AlbumTab({
           {/* Quick Check-in Buttons */}
           <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-white/5 relative z-10">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-medium text-slate-400 shrink-0">Ghi nhận lượng nước:</span>
+              <span className="text-[10px] font-medium text-slate-400 shrink-0">{t('water.quick_add')}:</span>
             </div>
             <div className="flex flex-wrap gap-2">
               <button 
@@ -1572,9 +1574,9 @@ export default function AlbumTab({
               <Droplet className="w-6 h-6 fill-blue-400/20" />
             </div>
             <div className="space-y-1">
-              <h4 className="text-sm font-semibold text-slate-100 font-sans">Xác minh uống nước</h4>
+              <h4 className="text-sm font-semibold text-slate-100 font-sans">{t('water.verify_popup')}</h4>
               <p className="text-xs text-slate-400 leading-relaxed font-sans">
-                Bạn muốn chụp ảnh xác thực cho lượt uống <span className="font-bold text-blue-400 font-mono">{pendingWaterDrink.amount}ml</span> này không?
+                Bạn muốn xác thực cho lượt uống <span className="font-bold text-blue-400 font-mono">{pendingWaterDrink.amount}ml</span> này không?
               </p>
             </div>
             <div className="flex flex-col gap-2 pt-2">
@@ -1585,7 +1587,7 @@ export default function AlbumTab({
                 }}
                 className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-2.5 text-xs font-semibold active:scale-98 transition-all cursor-pointer font-sans"
               >
-                Chụp ảnh xác minh 📸
+                {t('water.verify_photo')}
               </button>
               <button
                 onClick={() => {
@@ -1594,13 +1596,13 @@ export default function AlbumTab({
                 }}
                 className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 rounded-xl py-2.5 text-xs font-semibold active:scale-98 transition-all cursor-pointer font-sans"
               >
-                Ghi nhanh không ảnh ⚡
+                {t('water.verify_fast')}
               </button>
               <button
                 onClick={() => setPendingWaterDrink(null)}
                 className="w-full text-xs font-medium text-slate-500 hover:text-slate-350 py-1 transition-colors cursor-pointer font-sans"
               >
-                Hủy
+                {t('security.cancel')}
               </button>
             </div>
           </motion.div>
@@ -1613,7 +1615,7 @@ export default function AlbumTab({
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Droplet className="w-4 h-4 text-blue-400" />
-              <span className="text-xs font-semibold text-slate-200 font-sans">Xác minh hình ảnh - {pendingWaterDrink.amount}ml</span>
+              <span className="text-xs font-semibold text-slate-200 font-sans">{t('water.verify_popup')} - {pendingWaterDrink.amount}ml</span>
             </div>
             <button 
               onClick={() => {

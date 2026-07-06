@@ -7,8 +7,7 @@ const FALLBACK_LOCALE = 'vi';
 
 const LOCALE_META: Record<string, { name: string; flag: string }> = {
   vi: { name: 'Tiếng Việt', flag: '🇻🇳' },
-  'en-US': { name: 'English (US)', flag: '🇺🇸' },
-  en: { name: 'English (UK)', flag: '🇬🇧' },
+  en: { name: 'English', flag: '🇺🇸' },
   zh: { name: '中文', flag: '🇨🇳' },
   de: { name: 'Deutsch', flag: '🇩🇪' },
   fr: { name: 'Français', flag: '🇫🇷' },

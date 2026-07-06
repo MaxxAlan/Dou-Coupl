@@ -213,7 +213,7 @@ export default function Onboarding({ partnerId, onComplete }: OnboardingProps) {
                 </label>
                 <input
                   type="text"
-                  placeholder={partnerId === 'A' ? 'Ví dụ: Minh (Anh)' : 'Ví dụ: Linh (Em)'}
+                  placeholder={partnerId === 'A' ? 'Ví dụ: Mạnh' : 'Ví dụ: Linh'}
                   value={nickname}
                   onChange={(e) => setNickname(e.target.value)}
                   className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-[#c5a059]/50 focus:bg-white/[0.05] transition-all"

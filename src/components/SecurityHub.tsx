@@ -42,6 +42,7 @@ import { storageHelper } from '../lib/storage';
 import { BASE_URL } from '../lib/apiClient';
 import type { P2PStatus } from '../lib/p2pChannel';
 import LanguageSwitcher from './LanguageSwitcher';
+import { useT } from '../lib/i18n';
 
 interface SecurityHubProps {
   pairingCode: string;
@@ -98,6 +99,7 @@ export default function SecurityHub({
   onStartP2PHost,
   onStopP2P
 }: SecurityHubProps) {
+  const t = useT();
   const keyHex = useKeyHex(symmetricKey);
   const [diagnosticLogs, setDiagnosticLogs] = useState<string[]>([]);
   
@@ -410,10 +412,10 @@ export default function SecurityHub({
               <Shield className="w-5.5 h-5.5" />
             </div>
             <div>
-              <h4 className="text-xs font-semibold text-slate-100">Bảo mật Zero-Knowledge</h4>
+              <h4 className="text-xs font-semibold text-slate-100">{t('security.crypto_title')}</h4>
               <p className="text-[10px] text-[#c5a059] font-medium font-mono mt-0.5 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#c5a059] animate-pulse" />
-                <span>Hoạt động (AES-GCM-256)</span>
+                <span>{t('security.crypto_status')}</span>
               </p>
             </div>
           </div>
@@ -425,7 +427,7 @@ export default function SecurityHub({
         <div className="space-y-3">
           <h3 className="text-[9px] font-mono text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
             <User className="w-3.5 h-3.5 text-[#c5a059]" />
-            <span>CÀI ĐẶT HỒ SƠ & ẢNH ĐẠI DIỆN</span>
+            <span>{t('security.profile')}</span>
           </h3>
 
           <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4.5 space-y-4">
@@ -447,7 +449,7 @@ export default function SecurityHub({
                   </div>
                 </div>
                 <div>
-                  <span className="text-[9px] text-[#c5a059] font-mono uppercase tracking-wider block">THÀNH VIÊN ĐANG ĐĂNG NHẬP</span>
+                  <span className="text-[9px] text-[#c5a059] font-mono uppercase tracking-wider block">{t('security.member')}</span>
                   <h4 className="text-xs font-semibold text-slate-200">{currentPartner.name}</h4>
                 </div>
               </div>
@@ -458,7 +460,7 @@ export default function SecurityHub({
                   className="p-1.5 text-slate-400 hover:text-[#c5a059] hover:bg-white/[0.03] rounded-lg transition-all flex items-center gap-1 text-[10px] font-medium font-sans border border-white/5 cursor-pointer"
                 >
                   <Edit2 className="w-3 h-3" />
-                  <span>Thay đổi</span>
+                  <span>{t('security.change')}</span>
                 </button>
               )}
             </div>
@@ -580,7 +582,7 @@ export default function SecurityHub({
         <div className="space-y-2">
           <h3 className="text-[9px] font-mono text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
             <Key className="w-3.5 h-3.5 text-[#c5a059]" />
-            <span>THÔNG TIN KHÓA MẬT MÃ (E2EE)</span>
+            <span>{t('security.keys_section')}</span>
           </h3>
           <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-3.5">
             <div>
@@ -1134,7 +1136,7 @@ export default function SecurityHub({
         <div className="space-y-2">
           <h3 className="text-[9px] font-mono text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
             <Globe className="w-3.5 h-3.5 text-[#c5a059]" />
-            <span>NGÔN NGỮ & HIỂN THỊ</span>
+            <span>{t('language.title')}</span>
           </h3>
           <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-3">
             <LanguageSwitcher />
@@ -1153,7 +1155,7 @@ export default function SecurityHub({
 
         {/* Danger zone / Reset */}
         <div className="space-y-2">
-          <h3 className="text-[9px] font-mono text-red-500 uppercase tracking-widest">VÙNG NGUY HIỂM & QUẢN LÝ DEMO</h3>
+          <h3 className="text-[9px] font-mono text-red-500 uppercase tracking-widest">{t('security.danger_zone')}</h3>
           <div className="bg-red-950/10 border border-red-950/20 rounded-2xl p-4 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">

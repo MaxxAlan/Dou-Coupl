@@ -2,13 +2,13 @@
 
 export const DEMO_PARTNER_A = {
   id: 'A',
-  name: 'Minh (Anh)',
+  name: 'Mạnh',
   avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop'
 };
 
 export const DEMO_PARTNER_B = {
   id: 'B',
-  name: 'Linh (Em)',
+  name: 'Linh',
   avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop'
 };
 

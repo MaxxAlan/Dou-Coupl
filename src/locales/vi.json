@@ -152,5 +152,13 @@
 
   "language.title": "NGÔN NGỮ & HIỂN THỊ",
   "language.switch": "Chuyển đổi ngôn ngữ",
-  "language.label": "Ngôn ngữ"
+  "language.label": "Ngôn ngữ",
+
+  "water.title": "Trạm Cấp Nước",
+  "water.progress": "Tiến trình uống nước hôm nay",
+  "water.undo": "Hoàn tác",
+  "water.quick_add": "Check-in nhanh",
+  "water.verify_popup": "Xác nhận uống nước",
+  "water.verify_photo": "Chụp ảnh xác minh 📸",
+  "water.verify_fast": "Ghi nhanh không ảnh ⚡"
 }

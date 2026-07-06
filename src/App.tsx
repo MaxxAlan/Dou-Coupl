@@ -42,7 +42,7 @@ import {
 
 import { Partner, EncryptedMessage, EncryptedPhoto, Reminder, WaterLog } from './types';
 import { deriveSymmetricKey, encryptData } from './lib/crypto';
-import { auth, db } from './lib/firebase';
+import { auth, db, firebaseInitError } from './lib/firebase';
 import { apiClient, BASE_URL } from './lib/apiClient';
 import { storageHelper } from './lib/storage';
 import { uploadFileToGoogleDrive } from './lib/googleApi';
@@ -304,6 +304,10 @@ export default function App() {
 
   // 1. Firebase Authentication initialization
   useEffect(() => {
+    if (firebaseInitError || !auth) {
+      setAuthLoading(false);
+      return;
+    }
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setCurrentUser(user);
@@ -349,7 +353,7 @@ export default function App() {
 
   // 2. Listen to Firestore Couple document
   useEffect(() => {
-    if (!coupleId) {
+    if (firebaseInitError || !db || !coupleId) {
       setCoupleData(null);
       setMessages([]);
       setPhotos([]);
@@ -1052,6 +1056,56 @@ export default function App() {
   };
 
   // --- RENDER ROUTINE HELPERS ---
+
+  if (firebaseInitError) {
+    return (
+      <div className="min-h-screen bg-[#080808] font-sans flex items-center justify-center p-4 relative overflow-hidden select-none text-slate-200">
+        <div className="absolute inset-0 opacity-10 pointer-events-none overflow-hidden">
+          <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-rose-500 blur-[140px]" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[#201a15] blur-[140px]" />
+        </div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md bg-gradient-to-b from-[#111] to-[#0c0c0c] border border-rose-500/10 rounded-3xl p-6.5 md:p-8 shadow-2xl relative z-10 space-y-7"
+        >
+          <div className="text-center space-y-4">
+            <div className="w-16 h-16 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto text-rose-400 border border-rose-500/20">
+              <Heart className="w-8 h-8 animate-pulse text-rose-500" />
+            </div>
+            <h1 className="text-2xl font-semibold tracking-wider text-rose-400 font-serif">Kết nối Firebase thất bại</h1>
+            <p className="text-xs text-slate-400 font-sans leading-relaxed">
+              Ứng dụng không thể kết nối tới cơ sở dữ liệu Firebase. Điều này thường do thông tin cấu hình (API Key) bị thiếu hoặc không chính xác.
+            </p>
+          </div>
+
+          <div className="bg-black/50 p-4 rounded-2xl border border-rose-500/10 text-left font-mono text-[11px] overflow-x-auto text-rose-300/90 leading-normal">
+            <div className="font-semibold text-rose-400 mb-1">Chi tiết lỗi:</div>
+            {firebaseInitError}
+          </div>
+
+          <div className="text-xs text-slate-400 space-y-3 font-sans">
+            <p className="font-semibold text-slate-300">Hướng dẫn khắc phục:</p>
+            <ul className="list-disc pl-4 space-y-2 leading-relaxed">
+              <li>
+                <strong>Chạy cục bộ (Local):</strong> Đảm bảo bạn đã tạo file <code className="bg-slate-800 px-1 py-0.5 rounded text-rose-300 font-mono text-[10px]">.env</code> với đầy đủ cấu hình Firebase dựa trên <code className="bg-slate-800 px-1 py-0.5 rounded text-rose-300 font-mono text-[10px]">&quot;.env.example&quot;</code>.
+              </li>
+              <li>
+                <strong>Triển khai (Production):</strong> Cần cấu hình các biến môi trường tương ứng trong mục <strong>Secrets (GitHub Repository Secrets)</strong> trên GitHub trước khi thực hiện build/deploy:
+                <div className="grid grid-cols-2 gap-1 mt-2 text-[10px] text-slate-500 font-mono">
+                  <div>- VITE_FIREBASE_API_KEY</div>
+                  <div>- VITE_FIREBASE_APP_ID</div>
+                  <div>- VITE_FIREBASE_PROJECT_ID</div>
+                  <div>- VITE_FIREBASE_AUTH_DOMAIN</div>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   if (authLoading) {
     return (

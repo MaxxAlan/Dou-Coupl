@@ -12,11 +12,25 @@ const firebaseConfig = {
   measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID || '',
 };
 
-// Initialize Firebase SDK
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const auth = getAuth(app);
-export const storage = getStorage(app);
+export let firebaseInitError: string | null = null;
+export let app: any = null;
+export let db: any = null;
+export let auth: any = null;
+export let storage: any = null;
+
+try {
+  if (!firebaseConfig.apiKey) {
+    throw new Error('VITE_FIREBASE_API_KEY is not defined. Please check your .env file or Github repository secrets configuration.');
+  }
+  // Initialize Firebase SDK
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+  auth = getAuth(app);
+  storage = getStorage(app);
+} catch (error: any) {
+  firebaseInitError = error instanceof Error ? error.message : String(error);
+  console.error('Firebase Initialization failed:', error);
+}
 
 // Operational types for precise security-rule diagnostics
 export enum OperationType {

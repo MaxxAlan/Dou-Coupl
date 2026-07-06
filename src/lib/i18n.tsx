@@ -7,7 +7,8 @@ const FALLBACK_LOCALE = 'vi';
 
 const LOCALE_META: Record<string, { name: string; flag: string }> = {
   vi: { name: 'Tiếng Việt', flag: '🇻🇳' },
-  en: { name: 'English', flag: '🇺🇸' },
+  'en-US': { name: 'English (US)', flag: '🇺🇸' },
+  en: { name: 'English (UK)', flag: '🇬🇧' },
   zh: { name: '中文', flag: '🇨🇳' },
   de: { name: 'Deutsch', flag: '🇩🇪' },
   fr: { name: 'Français', flag: '🇫🇷' },
@@ -40,7 +41,9 @@ const I18nContext = createContext<I18nContextValue>({
 
 function detectBrowserLocale(): string {
   try {
-    const lang = navigator.language?.slice(0, 2).toLowerCase();
+    const fullLang = navigator.language?.toLowerCase();
+    if (SUPPORTED_LOCALES.includes(fullLang)) return fullLang;
+    const lang = fullLang?.slice(0, 2);
     if (SUPPORTED_LOCALES.includes(lang)) return lang;
   } catch {}
   return FALLBACK_LOCALE;

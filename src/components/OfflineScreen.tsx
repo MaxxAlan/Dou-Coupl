@@ -6,8 +6,8 @@ const PIXEL = 4;
 const W = 120;
 const H = 80;
 const GROUND = 68;
-const GRAVITY = 0.5;
-const JUMP = -9;
+const GRAVITY = 0.6;
+const JUMP = -6.5;
 
 const CHAR = {
   w: 7,

@@ -11,7 +11,10 @@ export interface Couple {
   partnerA?: Partner;
   partnerB?: Partner;
   anniversaryDate?: string; // YYYY-MM-DD
-  passcodeHash?: string; // Client-side check or simple string
+  passcodeHashA?: string;
+  passcodeHashB?: string;
+  hasPasscodeA?: boolean;
+  hasPasscodeB?: boolean;
   isLocked?: boolean;
 }
 
@@ -21,8 +24,9 @@ export interface EncryptedMessage {
   ciphertext: string; // AES-GCM Encrypted Base64
   iv: string; // Initialization Vector (hex/base64)
   timestamp: number;
-  type: 'text' | 'image_ref';
-  // expiresAt was removed because self-destructing message behavior is not implemented yet.
+  type: 'text' | 'image_ref' | 'voice' | 'video_ref';
+  isViewOnce?: boolean;
+  duration?: number; // for voice messages (seconds)
 }
 
 export interface EncryptedPhoto {

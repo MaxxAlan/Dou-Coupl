@@ -13,7 +13,10 @@ export function useThemeMusic(src: string) {
     audioRef.current = audio;
 
     const handleCanPlay = () => setReady(true);
-    const handleEnd = () => setPlaying(false);
+    const handleEnd = () => {
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+    };
     audio.addEventListener('canplaythrough', handleCanPlay);
     audio.addEventListener('ended', handleEnd);
     audio.load();
@@ -39,6 +42,12 @@ export function useThemeMusic(src: string) {
     }
   }, [ready]);
 
+  const play = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio || !ready) return;
+    audio.play().then(() => setPlaying(true)).catch(() => {});
+  }, [ready]);
+
   const stop = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -53,5 +62,5 @@ export function useThemeMusic(src: string) {
     audio.volume = Math.max(0, Math.min(1, v));
   }, []);
 
-  return { playing, ready, toggle, stop, setVolume };
+  return { playing, ready, toggle, play, stop, setVolume };
 }

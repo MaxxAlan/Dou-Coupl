@@ -1,12 +1,37 @@
 // Client API client for communicating with the local Node/Express backend.
-// Implements unified error handling and authentication header injection.
+// Implements unified error handling, authentication header injection, and CSRF/replay protection.
 
-export const BASE_URL = 'https://dou-coupl.onrender.com'; // Relative path because of Vite server proxying/production serving
+import { getItem, setItem } from './storage';
 
-async function request(path: string, options: RequestInit = {}): Promise<any> {
+export const BASE_URL = 'https://dou-coupl.onrender.com';
+
+// Generate nonce for replay attack prevention
+function generateNonce(): string {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Add security headers to all requests (CSRF, replay, partner identity)
+function addSecurityHeaders(headers: Headers, options?: { partnerId?: 'A' | 'B' | null }) {
+  // Anti-replay: nonce + timestamp
+  headers.set('X-Nonce', generateNonce());
+  headers.set('X-Timestamp', String(Date.now()));
+  // Partner identity (IDOR prevention)
+  if (options?.partnerId) {
+    headers.set('X-Partner-Id', options.partnerId);
+  }
+}
+
+async function request(path: string, options: RequestInit & { partnerId?: 'A' | 'B' | null } = {}): Promise<any> {
   const headers = new Headers(options.headers || {});
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
+  }
+
+  // Add security headers for all API requests
+  if (path.startsWith('/api/')) {
+    addSecurityHeaders(headers, { partnerId: options.partnerId });
   }
 
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -31,11 +56,12 @@ async function request(path: string, options: RequestInit = {}): Promise<any> {
 }
 
 export const apiClient = {
-  // 1. Fetch complete app state
-  getDatabaseState: async (pairingCode: string) => {
+  // 1. Fetch complete app state (note: pairingCode is now internal only)
+  getDatabaseState: async (pairingCode: string, partnerId?: 'A' | 'B' | null) => {
     return request('/api/state', {
       method: 'GET',
-      headers: { 'X-Pairing-Code': pairingCode }
+      headers: { 'X-Pairing-Code': pairingCode },
+      partnerId
     });
   },
 
@@ -44,7 +70,8 @@ export const apiClient = {
     return request('/api/messages', {
       method: 'POST',
       headers: { 'X-Pairing-Code': pairingCode },
-      body: JSON.stringify({ senderId, ciphertext, iv, type })
+      body: JSON.stringify({ senderId, ciphertext, iv, type }),
+      partnerId: senderId
     });
   },
 
@@ -53,7 +80,8 @@ export const apiClient = {
     return request('/api/photos', {
       method: 'POST',
       headers: { 'X-Pairing-Code': pairingCode },
-      body: JSON.stringify({ senderId, ciphertext, iv, captionCiphertext, captionIv, isViewOnce })
+      body: JSON.stringify({ senderId, ciphertext, iv, captionCiphertext, captionIv, isViewOnce }),
+      partnerId: senderId
     });
   },
 
@@ -70,7 +98,8 @@ export const apiClient = {
     return request('/api/reminders', {
       method: 'POST',
       headers: { 'X-Pairing-Code': pairingCode },
-      body: JSON.stringify({ title, category, dueDate, createdBy })
+      body: JSON.stringify({ title, category, dueDate, createdBy }),
+      partnerId: createdBy
     });
   },
 
@@ -99,20 +128,22 @@ export const apiClient = {
     });
   },
 
-  // 9. Set PIN passcode lock hash
-  setPasscode: async (pairingCode: string, passcode: string) => {
+  // 9. Set PIN passcode lock hash (per-partner)
+  setPasscode: async (pairingCode: string, passcode: string, partnerId: 'A' | 'B') => {
     return request('/api/passcode', {
       method: 'POST',
       headers: { 'X-Pairing-Code': pairingCode },
-      body: JSON.stringify({ passcode })
+      body: JSON.stringify({ passcode, partnerId }),
+      partnerId
     });
   },
 
-  // 10. Verify PIN passcode endpoint
-  verifyPasscode: async (passcode: string) => {
+  // 10. Verify PIN passcode endpoint (per-partner)
+  verifyPasscode: async (passcode: string, partnerId: 'A' | 'B') => {
     return request('/api/passcode/verify', {
       method: 'POST',
-      body: JSON.stringify({ passcode })
+      body: JSON.stringify({ passcode, partnerId }),
+      partnerId
     });
   },
 
@@ -129,7 +160,8 @@ export const apiClient = {
     return request('/api/special-anniversaries', {
       method: 'POST',
       headers: { 'X-Pairing-Code': pairingCode },
-      body: JSON.stringify({ id, title, date, notes, photo, createdBy })
+      body: JSON.stringify({ id, title, date, notes, photo, createdBy }),
+      partnerId: createdBy || null
     });
   },
 
@@ -145,8 +177,7 @@ export const apiClient = {
   resetDatabase: async (pairingCode: string, clean: boolean) => {
     return request('/api/reset', {
       method: 'POST',
-      headers: { 'X-Pairing-Code': pairingCode },
-      body: JSON.stringify({ clean })
+      headers: { 'X-Pairing-Code': pairingCode }
     });
   },
 
@@ -155,7 +186,8 @@ export const apiClient = {
     return request('/api/profile', {
       method: 'POST',
       headers: { 'X-Pairing-Code': pairingCode },
-      body: JSON.stringify({ partnerId, name, avatar })
+      body: JSON.stringify({ partnerId, name, avatar }),
+      partnerId
     });
   },
 
@@ -164,7 +196,8 @@ export const apiClient = {
     return request('/api/storage-method', {
       method: 'POST',
       headers: { 'X-Pairing-Code': pairingCode },
-      body: JSON.stringify({ partnerId, storageMethod })
+      body: JSON.stringify({ partnerId, storageMethod }),
+      partnerId
     });
   },
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Disc, Download, Upload, Shield } from 'lucide-react';
+import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Disc, Download, Upload, Shield, AlertCircle } from 'lucide-react';
 import { apiClient } from '../lib/apiClient';
 
 interface CallOverlayProps {
@@ -35,6 +35,7 @@ export default function CallOverlay({
   
   // Recording states
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingFailed, setRecordingFailed] = useState(false);
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [recordedBlobUrl, setRecordedBlobUrl] = useState<string | null>(null);
@@ -283,6 +284,7 @@ export default function CallOverlay({
     if (isRecording) {
       stopRecording();
     }
+    setRecordingFailed(false);
 
     // Stop tracks
     if (localStream) {
@@ -325,15 +327,38 @@ export default function CallOverlay({
     }
   };
 
-  // Mix local & remote audio streams and combine with remote video for Call Recording
+  const getSupportedMimeType = (): string => {
+    const types = [
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=h264,opus',
+      'video/mp4;codecs=h264,aac',
+      'video/webm',
+      'video/mp4',
+    ];
+    for (const type of types) {
+      if (MediaRecorder.isTypeSupported(type)) {
+        return type;
+      }
+    }
+    return '';
+  };
+
   const startRecording = () => {
     if (!localStream || !remoteStream) return;
+
+    const mimeType = getSupportedMimeType();
+    if (!mimeType) {
+      setRecordingFailed(true);
+      return;
+    }
+
     try {
       const chunks: Blob[] = [];
       setRecordedChunks([]);
       setRecordedBlobUrl(null);
+      setRecordingFailed(false);
 
-      // Mix Audio using Web Audio API
       const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioCtxClass();
       audioContextRef.current = audioCtx;
@@ -345,26 +370,22 @@ export default function CallOverlay({
       localSource.connect(dest);
       remoteSource.connect(dest);
 
-      // Combine video track and mixed audio destination
       const combinedStream = new MediaStream();
-      
-      // If we have video, add remote video track
+
       const remoteVideoTracks = remoteStream.getVideoTracks();
       const localVideoTracks = localStream.getVideoTracks();
-      
+
       if (remoteVideoTracks.length > 0) {
         combinedStream.addTrack(remoteVideoTracks[0]);
       } else if (localVideoTracks.length > 0) {
         combinedStream.addTrack(localVideoTracks[0]);
       }
 
-      // Add mixed audio track
       dest.stream.getAudioTracks().forEach(track => {
         combinedStream.addTrack(track);
       });
 
-      // Initialize MediaRecorder
-      const options = { mimeType: 'video/webm;codecs=vp8,opus' };
+      const options = { mimeType };
       const recorder = new MediaRecorder(combinedStream, options);
       mediaRecorderRef.current = recorder;
 
@@ -375,17 +396,25 @@ export default function CallOverlay({
       };
 
       recorder.onstop = () => {
-        const finalBlob = new Blob(chunks, { type: 'video/webm' });
+        const finalBlob = new Blob(chunks, { type: mimeType });
         setRecordedChunks(chunks);
         const url = URL.createObjectURL(finalBlob);
         setRecordedBlobUrl(url);
       };
 
-      recorder.start(1000); // chunk every 1 second
+      recorder.onerror = () => {
+        setRecordingFailed(true);
+        setIsRecording(false);
+        if (audioContextRef.current) {
+          audioContextRef.current.close().catch(() => {});
+        }
+      };
+
+      recorder.start(1000);
       setIsRecording(true);
     } catch (e) {
       console.error('Failed to initialize screen/call recording:', e);
-      alert('Không hỗ trợ ghi âm/ghi hình cuộc gọi trên trình duyệt này.');
+      setRecordingFailed(true);
     }
   };
 
@@ -590,24 +619,33 @@ export default function CallOverlay({
             
             {/* Screen Call Recording Toggle */}
             {callState === 'connected' && (
-              <div className="flex justify-center">
-                {!isRecording ? (
-                  <button
-                    onClick={startRecording}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-red-950/40 hover:bg-red-950/60 border border-red-500/20 hover:border-red-500/40 rounded-full text-red-400 hover:text-red-300 text-[10px] font-semibold transition-all cursor-pointer"
-                  >
-                    <Disc className="w-3.5 h-3.5" />
-                    <span>Ghi âm/Ghi hình cuộc gọi</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={stopRecording}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-full text-white text-[10px] font-semibold transition-all animate-pulse cursor-pointer shadow-md"
-                  >
-                    <Disc className="w-3.5 h-3.5" />
-                    <span>Dừng ghi âm/ghi hình</span>
-                  </button>
+              <div className="flex flex-col items-center gap-2">
+                {recordingFailed && (
+                  <div className="text-amber-400 text-[10px] font-mono bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-full flex items-center gap-1.5">
+                    <AlertCircle className="w-3 h-3" />
+                    <span>Không thể ghi trên thiết bị này</span>
+                  </div>
                 )}
+                <div className="flex justify-center">
+                  {!isRecording ? (
+                    <button
+                      onClick={startRecording}
+                      disabled={recordingFailed}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-red-950/40 hover:bg-red-950/60 border border-red-500/20 hover:border-red-500/40 rounded-full text-red-400 hover:text-red-300 text-[10px] font-semibold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Disc className="w-3.5 h-3.5" />
+                      <span>Ghi âm/Ghi hình cuộc gọi</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={stopRecording}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-full text-white text-[10px] font-semibold transition-all animate-pulse cursor-pointer shadow-md"
+                    >
+                      <Disc className="w-3.5 h-3.5" />
+                      <span>Dừng ghi âm/ghi hình</span>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 

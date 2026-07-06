@@ -1,5 +1,6 @@
 import vi from './vi.json';
 import en from './en.json';
+import enUS from './en-US.json';
 import zh from './zh.json';
 import de from './de.json';
 import fr from './fr.json';
@@ -14,6 +15,7 @@ import th from './th.json';
 export const localeData: Record<string, Record<string, string>> = {
   vi,
   en,
+  'en-US': enUS,
   zh,
   de,
   fr,

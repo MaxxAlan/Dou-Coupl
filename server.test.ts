@@ -45,14 +45,15 @@ describe('Express Server API Integration Tests', () => {
     expect(res.body.error).toContain('Invalid pairing code');
   });
 
-  it('GET /api/state with valid X-Pairing-Code should hide pairingCode and passcodeHash', async () => {
+  it('GET /api/state with valid X-Pairing-Code should hide pairingCode and passcode hashes', async () => {
     const res = await request(app)
       .get('/api/state')
       .set('X-Pairing-Code', pairingCode);
     expect(res.status).toBe(200);
     expect(res.body.pairingCode).toBeUndefined();
     expect(res.body.passcodeHash).toBeUndefined();
-    expect(res.body.hasPasscode).toBe(false);
+    expect(res.body.passcodeHashA).toBeUndefined();
+    expect(res.body.passcodeHashB).toBeUndefined();
   });
 
   it('POST /api/messages should parse schema and validate input', async () => {
@@ -81,32 +82,120 @@ describe('Express Server API Integration Tests', () => {
     expect(resInvalid.body.error).toBe('Validation failed');
   });
 
+  it('GET /api/csrf-token should return a token (CSRF protection)', async () => {
+    const res = await request(app).get('/api/csrf-token');
+    expect(res.status).toBe(200);
+    expect(res.body.csrfToken).toBeDefined();
+    expect(typeof res.body.csrfToken).toBe('string');
+  });
+
+  it('POST /api/passcode/verify should now require auth (Authentication Bypass fix)', async () => {
+    // Without auth - should fail
+    const resNoAuth = await request(app)
+      .post('/api/passcode/verify')
+      .send({ passcode: '1234', partnerId: 'A' });
+    expect(resNoAuth.status).toBe(401);
+
+    // With auth - should succeed (partner has no PIN set, returns valid: true)
+    const resWithAuth = await request(app)
+      .post('/api/passcode/verify')
+      .set('X-Pairing-Code', pairingCode)
+      .send({ passcode: '1234', partnerId: 'A' });
+    expect(resWithAuth.status).toBe(200);
+    expect(resWithAuth.body.valid).toBe(true);
+  });
+
+  it('POST /api/messages should reject senderId mismatch (IDOR prevention)', async () => {
+    // Set X-Partner-Id=A but send senderId=B
+    const res = await request(app)
+      .post('/api/messages')
+      .set('X-Pairing-Code', pairingCode)
+      .set('X-Partner-Id', 'A')
+      .send({
+        senderId: 'B', // Does not match X-Partner-Id
+        ciphertext: 'base64ciphertext',
+        iv: 'ivstring'
+      });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('senderId does not match');
+  });
+
+  it('POST /api/reminders should reject createdBy mismatch (IDOR prevention)', async () => {
+    const res = await request(app)
+      .post('/api/reminders')
+      .set('X-Pairing-Code', pairingCode)
+      .set('X-Partner-Id', 'B')
+      .send({
+        title: 'Test',
+        category: 'daily',
+        dueDate: '2026-10-15',
+        createdBy: 'A' // Does not match X-Partner-Id=B
+      });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('createdBy does not match');
+  });
+
+  it('Should reject invalid X-Pairing-Code format (Header Injection prevention)', async () => {
+    const res = await request(app)
+      .get('/api/state')
+      .set('X-Pairing-Code', '<script>alert(1)</script>');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Invalid X-Pairing-Code format');
+  });
+
+  it('POST /api/ai-ideas should require auth (Authentication Bypass fix)', async () => {
+    const res = await request(app)
+      .post('/api/ai-ideas')
+      .send({
+        daysTogether: 100,
+        anniversaryDate: '2026-01-01'
+      });
+    expect(res.status).toBe(401);
+  });
+
+  it('POST /api/pair-code should not return the new pairing code (Secret Leakage fix)', async () => {
+    const res = await request(app)
+      .post('/api/pair-code')
+      .set('X-Pairing-Code', pairingCode)
+      .send({ pairingCode: 'NEW-TEST-CODE' });
+    expect(res.status).toBe(200);
+    expect(res.body.pairingCode).toBeUndefined();
+    expect(res.body.success).toBe(true);
+    // Reset pairing code back
+    await request(app)
+      .post('/api/pair-code')
+      .set('X-Pairing-Code', 'NEW-TEST-CODE')
+      .send({ pairingCode });
+  });
+
   it('Passcode settings and verification (SEC-2)', async () => {
-    // 1. Set PIN to '1234'
+    // 1. Set PIN to '1234' (now requires partnerId)
     const setRes = await request(app)
       .post('/api/passcode')
       .set('X-Pairing-Code', pairingCode)
-      .send({ passcode: '1234' });
+      .send({ passcode: '1234', partnerId: 'A' });
     expect(setRes.status).toBe(200);
     expect(setRes.body.hasPasscode).toBe(true);
 
-    // 2. State hasPasscode check
+    // 2. State hasPasscode check (per-partner now)
     const stateRes = await request(app)
       .get('/api/state')
       .set('X-Pairing-Code', pairingCode);
-    expect(stateRes.body.hasPasscode).toBe(true);
+    expect(stateRes.body.hasPasscodeA).toBe(true);
 
-    // 3. Verify correct PIN
+    // 3. Verify correct PIN (now with auth)
     const verifyCorrect = await request(app)
       .post('/api/passcode/verify')
-      .send({ passcode: '1234' });
+      .set('X-Pairing-Code', pairingCode)
+      .send({ passcode: '1234', partnerId: 'A' });
     expect(verifyCorrect.status).toBe(200);
     expect(verifyCorrect.body.valid).toBe(true);
 
-    // 4. Verify incorrect PIN
+    // 4. Verify incorrect PIN (now with auth)
     const verifyIncorrect = await request(app)
       .post('/api/passcode/verify')
-      .send({ passcode: '5555' });
+      .set('X-Pairing-Code', pairingCode)
+      .send({ passcode: '5555', partnerId: 'A' });
     expect(verifyIncorrect.status).toBe(200);
     expect(verifyIncorrect.body.valid).toBe(false);
 
@@ -114,7 +203,7 @@ describe('Express Server API Integration Tests', () => {
     const clearRes = await request(app)
       .post('/api/passcode')
       .set('X-Pairing-Code', pairingCode)
-      .send({ passcode: '' });
+      .send({ passcode: '', partnerId: 'A' });
     expect(clearRes.status).toBe(200);
     expect(clearRes.body.hasPasscode).toBe(false);
   });

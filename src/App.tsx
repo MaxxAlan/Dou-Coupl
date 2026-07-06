@@ -63,6 +63,7 @@ import AnniversaryTab from './components/AnniversaryTab';
 import RemindersTab from './components/RemindersTab';
 import SecurityHub from './components/SecurityHub';
 import CallOverlay from './components/CallOverlay';
+import DesktopUI from './components/DesktopUI';
 
 const PRESET_AVATARS = [
   'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop',
@@ -116,7 +117,8 @@ export default function App() {
   const [activePartner, setActivePartner] = useState<'A' | 'B'>('A');
   const [activeTab, setActiveTab] = useState<'anniversary' | 'chat' | 'album' | 'reminders' | 'security'>('anniversary');
   const [isSettingPasscode, setIsSettingPasscode] = useState<boolean>(false);
-  const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+  const [isUnlockedA, setIsUnlockedA] = useState<boolean>(false);
+  const [isUnlockedB, setIsUnlockedB] = useState<boolean>(false);
 
   // WebRTC Calling States (Component 2)
   const [isCallActive, setIsCallActive] = useState<boolean>(false);
@@ -126,6 +128,35 @@ export default function App() {
 
   const online = useOnlineStatus();
   const themeMusic = useThemeMusic(themeMusicSrc);
+  const { ready } = themeMusic;
+
+  // Auto-play theme music on auth/offline screens, stop in main app
+  const isAuthScreen = !currentUser || !userProfile?.nickname || !coupleId;
+  useEffect(() => {
+    if (ready) {
+      if (isAuthScreen || !online) {
+        themeMusic.play();
+      } else {
+        themeMusic.stop();
+      }
+    }
+  }, [isAuthScreen, online, ready]);
+
+  // Per-partner unlock
+  const isUnlocked = activePartner === 'A' ? isUnlockedA : isUnlockedB;
+  const setIsUnlocked = (v: boolean) => {
+    if (activePartner === 'A') setIsUnlockedA(v);
+    else setIsUnlockedB(v);
+  };
+
+  // Desktop detection
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const check = () => setIsDesktop(window.innerWidth >= 1024 && !('ontouchstart' in window));
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   // P2P Data Channel State
   const [p2pStatus, setP2pStatus] = useState<P2PStatus>('idle');
@@ -208,10 +239,11 @@ export default function App() {
       setReminders(state.reminders || []);
       setSpecialAnniversaries(state.specialAnniversaries || []);
       
-      // Update coupleData with hasPasscode and other properties
+      // Update coupleData with per-partner passcode and other properties
       setCoupleData(prev => ({
         ...prev,
-        hasPasscode: state.hasPasscode,
+        hasPasscodeA: state.hasPasscodeA,
+        hasPasscodeB: state.hasPasscodeB,
         anniversaryDate: state.anniversaryDate || prev.anniversaryDate,
         partnerA: state.partnerA || prev.partnerA,
         partnerB: state.partnerB || prev.partnerB
@@ -384,7 +416,7 @@ export default function App() {
               setCoupleData(prev => ({ ...prev, anniversaryDate: data.anniversaryDate }));
               break;
             case 'UPDATE_PASSCODE':
-              setCoupleData(prev => ({ ...prev, hasPasscode: data.hasPasscode }));
+              setCoupleData(prev => ({ ...prev, hasPasscodeA: data.hasPasscodeA, hasPasscodeB: data.hasPasscodeB }));
               break;
             case 'UPDATE_SPECIAL_ANNIVERSARIES':
               setSpecialAnniversaries(data);
@@ -414,7 +446,8 @@ export default function App() {
             case 'RESET_STATE':
               setCoupleData(prev => ({
                 ...prev,
-                hasPasscode: data.hasPasscode,
+                hasPasscodeA: data.hasPasscodeA,
+                hasPasscodeB: data.hasPasscodeB,
                 anniversaryDate: data.anniversaryDate,
                 partnerA: data.partnerA,
                 partnerB: data.partnerB
@@ -734,9 +767,10 @@ export default function App() {
   const handleSetPasscode = async (passcode: string) => {
     if (!coupleData?.pairingCode) return;
     try {
-      await apiClient.setPasscode(coupleData.pairingCode, passcode);
+      await apiClient.setPasscode(coupleData.pairingCode, passcode, activePartner);
       triggerNotification('Bảo mật PIN', 'Cài đặt mã khóa PIN thành công');
-      setIsUnlocked(true);
+      if (activePartner === 'A') setIsUnlockedA(true);
+      else setIsUnlockedB(true);
       setIsSettingPasscode(false);
     } catch (e) {
       console.error(e);
@@ -747,9 +781,10 @@ export default function App() {
   const handleClearPasscode = async () => {
     if (!coupleData?.pairingCode) return;
     try {
-      await apiClient.setPasscode(coupleData.pairingCode, '');
+      await apiClient.setPasscode(coupleData.pairingCode, '', activePartner);
       triggerNotification('Bảo mật PIN', 'Đã gỡ bỏ mã khóa PIN bảo vệ');
-      setIsUnlocked(true);
+      if (activePartner === 'A') setIsUnlockedA(true);
+      else setIsUnlockedB(true);
     } catch (e) {
       console.error(e);
     }
@@ -770,7 +805,7 @@ export default function App() {
   // Secure async verify callback for PasscodeLock
   const handleVerifyPasscode = async (pin: string): Promise<boolean> => {
     try {
-      const res = await apiClient.verifyPasscode(pin);
+      const res = await apiClient.verifyPasscode(pin, activePartner);
       return !!res.valid;
     } catch (e) {
       console.error('Passcode verification error:', e);
@@ -778,13 +813,170 @@ export default function App() {
     }
   };
 
-  // Unlocked state: use sessionStorage so it resets on tab close (security)
+  // Unlocked state: use sessionStorage so it resets on tab close (security, per-partner)
   useEffect(() => {
     if (coupleId) {
-      const unlocked = sessionStorage.getItem(`unlocked_${coupleId}`) === 'true';
-      setIsUnlocked(unlocked);
+      const unlockedA = sessionStorage.getItem(`unlocked_${coupleId}_A`) === 'true';
+      const unlockedB = sessionStorage.getItem(`unlocked_${coupleId}_B`) === 'true';
+      setIsUnlockedA(unlockedA);
+      setIsUnlockedB(unlockedB);
     }
   }, [coupleId]);
+
+  // Desktop screen (all-in-one desktop layout)
+  const renderDesktopScreen = () => {
+    if (!coupleData) {
+      return (
+        <div className="h-full flex flex-col items-center justify-center bg-[#080808] text-slate-400 p-6 text-center">
+          <Loader2 className="w-8 h-8 text-[#c5a059] animate-spin mb-3" />
+          <p className="text-xs font-mono uppercase tracking-widest text-slate-500">Đang tải không gian lứa đôi...</p>
+        </div>
+      );
+    }
+
+    const activePasscodeNeeded = activePartner === 'A' ? coupleData?.hasPasscodeA : coupleData?.hasPasscodeB;
+    if (activePasscodeNeeded && !isUnlocked && !isSettingPasscode) {
+      return (
+        <PasscodeLock
+          correctPasscode=""
+          onVerifyPasscode={handleVerifyPasscode}
+          onUnlock={() => {
+            if (activePartner === 'A') {
+              setIsUnlockedA(true);
+              sessionStorage.setItem(`unlocked_${coupleId}_A`, 'true');
+            } else {
+              setIsUnlockedB(true);
+              sessionStorage.setItem(`unlocked_${coupleId}_B`, 'true');
+            }
+          }}
+        />
+      );
+    }
+
+    if (isSettingPasscode) {
+      return (
+        <PasscodeLock
+          correctPasscode=""
+          isSettingMode={true}
+          onUnlock={() => setIsSettingPasscode(false)}
+          onSetPasscodeComplete={handleSetPasscode}
+          onCancelSetting={() => setIsSettingPasscode(false)}
+        />
+      );
+    }
+
+    return (
+      <DesktopUI
+        activeTab={activeTab}
+        onTabChange={(tab) => setActiveTab(tab as any)}
+        activePartner={activePartner}
+        partnerA={coupleData?.partnerA}
+        partnerB={coupleData?.partnerB}
+        hasPasscode={!!activePasscodeNeeded}
+        onSignOut={handleSignOut}
+        onLock={() => {
+          if (activePartner === 'A') {
+            sessionStorage.removeItem(`unlocked_${coupleId}_A`);
+            setIsUnlockedA(false);
+          } else {
+            sessionStorage.removeItem(`unlocked_${coupleId}_B`);
+            setIsUnlockedB(false);
+          }
+        }}
+        onStartCall={(type) => {
+          setCallType(type);
+          setIsCallIncoming(false);
+          setIncomingCallSignal(null);
+          setIsCallActive(true);
+        }}
+        onSendQuickPhoto={() => {
+          setActiveTab('album');
+        }}
+      >
+        <div className="h-full overflow-hidden relative">
+          {activeTab === 'anniversary' && (
+            <AnniversaryTab
+              anniversaryDate={coupleData?.anniversaryDate || '2025-10-15'}
+              partnerA={coupleData?.partnerA}
+              partnerB={coupleData?.partnerB}
+              specialAnniversaries={specialAnniversaries}
+              activePartner={activePartner}
+              onUpdateAnniversary={handleUpdateAnniversary}
+              onAddSpecialAnniversary={handleAddSpecialAnniversary}
+              onDeleteSpecialAnniversary={handleDeleteSpecialAnniversary}
+              photos={photos}
+              symmetricKey={symmetricKey}
+              onUploadPhoto={handleUploadPhoto}
+              storageMethodA={coupleData?.storageMethodA}
+              storageMethodB={coupleData?.storageMethodB}
+            />
+          )}
+          {activeTab === 'chat' && (
+            <ChatTab
+              messages={messages}
+              activePartner={activePartner}
+              partnerA={coupleData?.partnerA}
+              partnerB={coupleData?.partnerB}
+              symmetricKey={symmetricKey}
+              pairingCode={coupleData?.pairingCode || ''}
+              onSendMessage={handleSendMessage}
+              onStartCall={(type) => {
+                setCallType(type);
+                setIsCallIncoming(false);
+                setIncomingCallSignal(null);
+                setIsCallActive(true);
+              }}
+              onUploadPhoto={handleUploadPhoto}
+              photos={photos}
+              p2pStatus={p2pStatus}
+            />
+          )}
+          {activeTab === 'album' && (
+            <AlbumTab
+              photos={photos}
+              activePartner={activePartner}
+              partnerA={coupleData?.partnerA}
+              partnerB={coupleData?.partnerB}
+              symmetricKey={symmetricKey}
+              onUploadPhoto={handleUploadPhoto}
+              onDeletePhoto={handleDeletePhoto}
+              storageMethodA={coupleData?.storageMethodA}
+              storageMethodB={coupleData?.storageMethodB}
+            />
+          )}
+          {activeTab === 'reminders' && (
+            <RemindersTab
+              reminders={reminders}
+              activePartner={activePartner}
+              onAddReminder={handleAddReminder}
+              onToggleReminder={handleToggleReminder}
+              onDeleteReminder={handleDeleteReminder}
+            />
+          )}
+          {activeTab === 'security' && (
+            <SecurityHub
+              pairingCode={coupleData?.pairingCode || ''}
+              symmetricKey={symmetricKey}
+              hasPasscode={!!(activePartner === 'A' ? coupleData?.hasPasscodeA : coupleData?.hasPasscodeB)}
+              partnerA={coupleData?.partnerA}
+              partnerB={coupleData?.partnerB}
+              activePartner={activePartner}
+              onUpdateProfile={handleUpdateProfile}
+              onClearPasscode={handleClearPasscode}
+              onTriggerSetPasscode={() => setIsSettingPasscode(true)}
+              onResetDatabase={handleResetDatabase}
+              onUpdateStorageMethod={handleUpdateStorageMethod}
+              storageMethodA={coupleData?.storageMethodA}
+              storageMethodB={coupleData?.storageMethodB}
+              p2pStatus={p2pStatus}
+              onStartP2PHost={() => p2pChannel.startHost()}
+              onStopP2P={() => p2pChannel.closeChannel()}
+            />
+          )}
+        </div>
+      </DesktopUI>
+    );
+  };
 
   // --- RENDER ROUTINE HELPERS ---
 
@@ -920,6 +1112,22 @@ export default function App() {
             </svg>
             <span>Đăng nhập bằng Google</span>
           </button>
+
+          {/* Desktop copyright footer */}
+          {isDesktop && (
+            <div className="text-center pt-2 border-t border-white/5 mt-2">
+              <p className="text-[9px] text-slate-600 font-mono tracking-wider">© 2025-2026 <span className="text-[#c5a059]/60">@Dou-Coupl</span></p>
+              <p className="text-[8px] text-slate-700 mt-1 font-mono">
+                Phát triển bởi{' '}
+                <span
+                  className="text-slate-500 hover:text-[#c5a059] transition-colors cursor-pointer"
+                  onClick={() => alert('Developers: MaxxAlan')}
+                >
+                  MaxxAlan
+                </span>
+              </p>
+            </div>
+          )}
         </motion.div>
       </div>
     );
@@ -1098,15 +1306,21 @@ export default function App() {
       );
     }
 
-    // 1. PIN Lock Guard
-    if (coupleData?.hasPasscode && !isUnlocked && !isSettingPasscode) {
+    // 1. PIN Lock Guard (per-partner)
+    const activePasscodeNeeded = activePartner === 'A' ? coupleData?.hasPasscodeA : coupleData?.hasPasscodeB;
+    if (activePasscodeNeeded && !isUnlocked && !isSettingPasscode) {
       return (
         <PasscodeLock
           correctPasscode="" // verification handled via async callback
           onVerifyPasscode={handleVerifyPasscode}
           onUnlock={() => {
-            setIsUnlocked(true);
-            sessionStorage.setItem(`unlocked_${coupleId}`, 'true');
+            if (activePartner === 'A') {
+              setIsUnlockedA(true);
+              sessionStorage.setItem(`unlocked_${coupleId}_A`, 'true');
+            } else {
+              setIsUnlockedB(true);
+              sessionStorage.setItem(`unlocked_${coupleId}_B`, 'true');
+            }
           }}
         />
       );
@@ -1142,11 +1356,16 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
-            {coupleData?.hasPasscode && (
+            {activePasscodeNeeded && (
               <button
                 onClick={() => {
-                  sessionStorage.removeItem(`unlocked_${coupleId}`);
-                  setIsUnlocked(false);
+                  if (activePartner === 'A') {
+                    sessionStorage.removeItem(`unlocked_${coupleId}_A`);
+                    setIsUnlockedA(false);
+                  } else {
+                    sessionStorage.removeItem(`unlocked_${coupleId}_B`);
+                    setIsUnlockedB(false);
+                  }
                 }}
                 className="p-1.5 rounded-xl bg-white/[0.03] border border-white/10 text-white/40 hover:text-[#c5a059] transition-colors cursor-pointer"
                 title="Khóa thiết bị"
@@ -1198,6 +1417,8 @@ export default function App() {
                 setIncomingCallSignal(null);
                 setIsCallActive(true);
               }}
+              onUploadPhoto={handleUploadPhoto}
+              photos={photos}
               p2pStatus={p2pStatus}
             />
           )}
@@ -1227,7 +1448,7 @@ export default function App() {
             <SecurityHub
               pairingCode={coupleData?.pairingCode || ''}
               symmetricKey={symmetricKey}
-              hasPasscode={!!coupleData?.hasPasscode}
+              hasPasscode={!!(activePartner === 'A' ? coupleData?.hasPasscodeA : coupleData?.hasPasscodeB)}
               partnerA={coupleData?.partnerA}
               partnerB={coupleData?.partnerB}
               activePartner={activePartner}
@@ -1293,7 +1514,8 @@ export default function App() {
             initial={{ y: -100, opacity: 0, x: '-50%' }}
             animate={{ y: 0, opacity: 1, x: '-50%' }}
             exit={{ y: -100, opacity: 0, x: '-50%' }}
-            className="absolute top-20 left-1/2 z-50 bg-[#0c0c0c]/95 border border-[#c5a059]/30 text-[#c5a059] py-3 px-5 rounded-2xl shadow-2xl flex items-center gap-3 font-sans w-[90%] max-w-sm pointer-events-none backdrop-blur-md"
+            onClick={() => setNotification(null)}
+            className="absolute top-20 left-1/2 z-50 bg-[#0c0c0c]/95 border border-[#c5a059]/30 text-[#c5a059] py-3 px-5 rounded-2xl shadow-2xl flex items-center gap-3 font-sans w-[90%] max-w-sm backdrop-blur-md cursor-pointer active:scale-95 transition-transform"
           >
             <div className="w-7 h-7 rounded-full bg-[#c5a059]/10 flex items-center justify-center text-[#c5a059] shrink-0">
               <BellRing className="w-4 h-4 animate-bounce" />
@@ -1306,12 +1528,18 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Main Single Device Container (COM-1) */}
-      <div className="flex-grow flex items-center justify-center z-10 w-full overflow-hidden h-full">
-        <div className="w-full max-w-md h-screen md:h-[92vh] md:max-h-[850px] bg-black border-x border-white/5 md:rounded-[36px] shadow-2xl flex flex-col overflow-hidden relative">
-          {renderPhoneScreen()}
+      {/* Main Container — Desktop or Phone */}
+      {isDesktop ? (
+        <div className="flex-grow z-10 w-full h-full overflow-hidden">
+          {renderDesktopScreen()}
         </div>
-      </div>
+      ) : (
+        <div className="flex-grow flex items-center justify-center z-10 w-full overflow-hidden h-full">
+          <div className="w-full max-w-md h-dvh md:h-[92vh] md:max-h-[850px] bg-black border-x border-white/5 md:rounded-[36px] shadow-2xl flex flex-col overflow-hidden relative safe-area-bottom">
+            {renderPhoneScreen()}
+          </div>
+        </div>
+      )}
 
       {/* P2P E2EE Calling Overlay (Component 2) */}
       {isCallActive && (

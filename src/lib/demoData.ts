@@ -90,7 +90,8 @@ export const DEFAULT_STATE = {
   photos: [],
   reminders: DEMO_REMINDERS,
   specialAnniversaries: DEMO_ANNIVERSARIES,
-  passcodeHash: '',
+  passcodeHashA: '',
+  passcodeHashB: '',
   storageMethodA: 'p2p',
   storageMethodB: 'p2p'
 };
@@ -113,7 +114,8 @@ export const CLEAN_STATE = {
   photos: [],
   reminders: [],
   specialAnniversaries: [],
-  passcodeHash: '',
+  passcodeHashA: '',
+  passcodeHashB: '',
   storageMethodA: 'p2p',
   storageMethodB: 'p2p'
 };

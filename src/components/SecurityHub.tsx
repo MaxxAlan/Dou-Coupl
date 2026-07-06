@@ -109,6 +109,9 @@ export default function SecurityHub({
   // WebAuthn state
   const [hasWebAuthnRegistered, setHasWebAuthnRegistered] = useState<boolean>(() => !!storageHelper.getItem<string>('webauthn_credential_id', ''));
 
+  // Copyright dev reveal
+  const [showDevs, setShowDevs] = useState(false);
+
   // Profile settings state
   const currentPartner = activePartner === 'A' ? partnerA : partnerB;
   const [profileName, setProfileName] = useState<string>(currentPartner.name);
@@ -1186,6 +1189,21 @@ export default function SecurityHub({
           </div>
         </div>
 
+        {/* Copyright */}
+        <div className="text-center pt-4 pb-6 border-t border-white/5">
+          <button
+            onClick={() => setShowDevs(!showDevs)}
+            className="text-[10px] text-slate-600 font-mono tracking-wider hover:text-[#c5a059] transition-colors cursor-pointer"
+          >
+            © 2025-2026 <span className="text-[#c5a059]/60">@Dou-Coupl</span>
+          </button>
+          {showDevs && (
+            <div className="mt-2 text-[9px] text-slate-500 font-mono animate-in fade-in slide-in-from-top-1 duration-200">
+              Developers:{' '}
+              <span className="text-[#c5a059] font-semibold">MaxxAlan</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

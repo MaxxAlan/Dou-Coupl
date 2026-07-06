@@ -5,21 +5,43 @@ interface MockIPhoneFrameProps {
   children: React.ReactNode;
 }
 
+function isRealMobile(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.innerWidth <= 768 || 'ontouchstart' in window;
+}
+
 export default function MockIPhoneFrame({ children }: MockIPhoneFrameProps) {
   const [timeStr, setTimeStr] = useState<string>('09:41');
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
+    setIsMobile(isRealMobile());
     const updateTime = () => {
       const now = new Date();
       setTimeStr(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }));
     };
     updateTime();
     const interval = setInterval(updateTime, 30000);
-    return () => clearInterval(interval);
+    const handleResize = () => setIsMobile(isRealMobile());
+    window.addEventListener('resize', handleResize);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
+  if (isMobile) {
+    return (
+      <div className="relative w-full h-full flex flex-col overflow-hidden bg-black select-none">
+        <div className="flex-1 overflow-hidden relative flex flex-col">
+          {children}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="relative w-full max-w-[390px] h-[780px] rounded-[48px] border-[10px] border-[#0c0c0c] bg-black shadow-[0_25px_60px_-15px_rgba(0,0,0,0.95)] flex flex-col overflow-hidden ring-1 ring-[#c5a059]/10 select-none mx-auto">
+    <div className="relative w-full max-w-[390px] h-[780px] max-h-[90vh] rounded-[48px] border-[10px] border-[#0c0c0c] bg-black shadow-[0_25px_60px_-15px_rgba(0,0,0,0.95)] flex flex-col overflow-hidden ring-1 ring-[#c5a059]/10 select-none mx-auto">
       {/* Top status bar (iOS notch and indicators) */}
       <div className="h-11 bg-slate-950 flex justify-between items-center px-7 shrink-0 text-slate-100 z-30 select-none">
         {/* Left Clock */}

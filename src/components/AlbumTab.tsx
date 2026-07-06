@@ -441,11 +441,21 @@ export default function AlbumTab({
     }
   };
 
+  const [pendingDeleteViewOnce, setPendingDeleteViewOnce] = useState<string | null>(null);
+
   const handleViewPhoto = (photo: EncryptedPhoto) => {
     setActivePhotoView(photo);
     if (photo.isViewOnce && photo.senderId !== activePartner) {
-      onDeletePhoto(photo.id);
+      setPendingDeleteViewOnce(photo.id);
     }
+  };
+
+  const handleCloseViewer = () => {
+    if (pendingDeleteViewOnce) {
+      onDeletePhoto(pendingDeleteViewOnce);
+      setPendingDeleteViewOnce(null);
+    }
+    setActivePhotoView(null);
   };
 
   return (
@@ -1126,6 +1136,7 @@ export default function AlbumTab({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="absolute inset-0 z-50 bg-black flex flex-col justify-between"
+            onClick={handleCloseViewer}
           >
             {/* Top Close bar */}
             <div className="p-4 flex items-center justify-between border-b border-white/5 bg-white/[0.01]">
@@ -1134,7 +1145,7 @@ export default function AlbumTab({
                 <span>GIẢI MÃ SỬ DỤNG KHÓA AES-GCM 256-BIT CỤC BỘ</span>
               </div>
               <button
-                onClick={() => setActivePhotoView(null)}
+                onClick={handleCloseViewer}
                 className="p-1.5 rounded-full bg-white/5 border border-white/10 text-slate-300 hover:text-slate-100 cursor-pointer"
               >
                 <X className="w-4 h-4" />

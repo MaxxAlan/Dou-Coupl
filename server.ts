@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs/promises';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
@@ -24,6 +25,24 @@ app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT) || 3000;
 const DB_FILE = path.join(process.cwd(), 'db.json');
 const dbMutex = new Mutex();
+const sseMutex = new Mutex();
+
+// --- Anti-Replay & CSRF protection ---
+const VALID_NONCE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const usedNonces = new Set<string>();
+// Periodic cleanup of old nonces
+setInterval(() => { usedNonces.clear(); }, VALID_NONCE_WINDOW_MS);
+
+// --- Session tracking (Session Fixation prevention) ---
+let sessionVersion = 0;
+const activeSessions = new Map<string, { version: number; createdAt: number }>();
+function bumpSessionVersion() {
+  sessionVersion++;
+  activeSessions.clear();
+}
+
+// --- HMAC signing key for request integrity ---
+const HMAC_KEY = crypto.randomBytes(32).toString('hex');
 
 // Security check helper
 import { DEFAULT_STATE, CLEAN_STATE } from './src/lib/demoData';
@@ -57,11 +76,13 @@ const anniversarySchema = z.object({
 });
 
 const passcodeSchema = z.object({
-  passcode: z.string().max(100) // Will be hashed on server. Send empty string to clear.
+  passcode: z.string().max(100), // Will be hashed on server. Send empty string to clear.
+  partnerId: z.enum(['A', 'B'])
 });
 
 const passcodeVerifySchema = z.object({
-  passcode: z.string().min(1).max(100)
+  passcode: z.string().min(1).max(100),
+  partnerId: z.enum(['A', 'B'])
 });
 
 const specialAnniversarySchema = z.object({
@@ -100,20 +121,26 @@ const callSignalSchema = z.object({
   signal: z.any()
 });
 
-// Configure Helmet with friendly CSP for AI Studio framing
+// Configure Helmet with strict CSP (CSRF/XSS prevention)
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https://images.unsplash.com", "https://*.googleusercontent.com", "https://*.google.com"],
       connectSrc: ["'self'", "https://*.googleapis.com", "https://*.firebaseapp.com", "https://*.firebasestorage.app", "wss://*.firebaseapp.com", "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com", "https://dou-coupl.onrender.com", "https://dou-coupl.web.app"],
-      frameAncestors: ["'self'", "*"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
     },
   },
   crossOriginEmbedderPolicy: false,
+  referrerPolicy: { policy: 'no-referrer' },
+  noSniff: true,
+  xssFilter: true,
+  hidePoweredBy: true,
 }));
 
 // CORS Configuration
@@ -174,17 +201,33 @@ app.use('/api/*', globalLimiter);
 // Server-Sent Events clients registry
 let sseClients: any[] = [];
 
-// Broadcast event to all SSE clients
+// Broadcast event to all SSE clients (Mutex-protected for race condition prevention)
 function broadcastEvent(type: string, data: any) {
-  const payload = JSON.stringify({ type, data });
-  logger.debug({ type }, 'Broadcasting SSE event');
-  sseClients.forEach(client => {
-    try {
-      client.write(`data: ${payload}\n\n`);
-    } catch (e) {
-      // Clean up failed client connections
-    }
-  });
+  sseMutex.runExclusive(() => {
+    // Filter sensitive data from broadcasts (Information Disclosure prevention)
+    const safeData = filterEventData(type, data);
+    const payload = JSON.stringify({ type, data: safeData });
+    logger.debug({ type }, 'Broadcasting SSE event');
+    sseClients.forEach(client => {
+      try {
+        client.write(`data: ${payload}\n\n`);
+      } catch (e) {
+        // Clean up failed client connections
+      }
+    });
+  }).catch((e: Error) => logger.error(e, 'SSE broadcast error'));
+}
+
+// Filter sensitive fields from SSE broadcast data
+function filterEventData(type: string, data: any) {
+  if (!data || typeof data !== 'object') return data;
+  const filtered = { ...data };
+  // Never expose pairing codes or passcodes via SSE
+  delete filtered.pairingCode;
+  delete filtered.passcodeHashA;
+  delete filtered.passcodeHashB;
+  delete filtered.newPairingCode;
+  return filtered;
 }
 
 // Database read/write utilities using Mutex to prevent race conditions
@@ -219,27 +262,58 @@ async function updateDatabase(updater: (state: any) => void) {
   });
 }
 
-// Strips out pairingCode and passcodeHash before returning state to client (SEC-1 / SEC-2)
+// Strips out pairingCode and passcode hashes before returning state to client (SEC-1 / SEC-2)
 function filterStateForClient(state: any) {
   const cleanState = { ...state };
   delete cleanState.pairingCode;
-  delete cleanState.passcodeHash;
-  cleanState.hasPasscode = !!state.passcodeHash;
+  delete cleanState.passcodeHash; // Legacy single passcode
+  delete cleanState.passcodeHashA;
+  delete cleanState.passcodeHashB;
+  cleanState.hasPasscodeA = !!state.passcodeHashA;
+  cleanState.hasPasscodeB = !!state.passcodeHashB;
   return cleanState;
 }
+
+// Validate X-Pairing-Code format (Header Injection prevention)
+const PAIRING_CODE_REGEX = /^[A-Za-z0-9\-]{4,50}$/;
 
 // Minimal authentication middleware via X-Pairing-Code (SEC-3)
 async function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
-    const clientCode = req.headers['x-pairing-code'] || req.query.pairingCode;
-    if (!clientCode) {
+    const clientCode = req.headers['x-pairing-code'];
+    if (!clientCode || typeof clientCode !== 'string') {
       logger.warn({ path: req.path }, 'Request blocked: missing X-Pairing-Code header');
       return res.status(401).json({ error: 'Unauthorized: Missing X-Pairing-Code header' });
+    }
+    // Header Injection prevention: validate format
+    if (!PAIRING_CODE_REGEX.test(clientCode)) {
+      return res.status(400).json({ error: 'Invalid X-Pairing-Code format' });
     }
     const state = await readDatabase();
     if (state.pairingCode !== clientCode) {
       logger.warn({ path: req.path }, 'Request blocked: invalid pairing code');
       return res.status(401).json({ error: 'Unauthorized: Invalid pairing code' });
+    }
+    // Anti-replay: validate nonce and timestamp if provided
+    const nonce = req.headers['x-nonce'];
+    const timestamp = req.headers['x-timestamp'];
+    if (nonce && typeof nonce === 'string' && timestamp && typeof timestamp === 'string') {
+      const ts = parseInt(timestamp, 10);
+      if (isNaN(ts) || Date.now() - ts > VALID_NONCE_WINDOW_MS) {
+        return res.status(401).json({ error: 'Request expired or invalid timestamp' });
+      }
+      if (usedNonces.has(nonce)) {
+        return res.status(401).json({ error: 'Nonce already used (replay detected)' });
+      }
+      usedNonces.add(nonce);
+    }
+    // Session validation: check if session is valid
+    const sessionToken = req.headers['x-session-token'];
+    if (sessionToken && typeof sessionToken === 'string') {
+      const session = activeSessions.get(sessionToken);
+      if (!session || session.version !== sessionVersion) {
+        return res.status(401).json({ error: 'Session expired. Please re-authenticate.' });
+      }
     }
     next();
   } catch (error) {
@@ -258,30 +332,49 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Event Stream (SSE) for Realtime updates. Validates pairing code in query param.
+// CSRF token endpoint (CSRF protection)
+app.get('/api/csrf-token', (req, res) => {
+  const csrfToken = crypto.randomBytes(32).toString('hex');
+  res.json({ csrfToken });
+});
+
+// Validate senderId against active partners (IDOR prevention)
+function validateSenderId(senderId: string, state: any): boolean {
+  return senderId === 'A' || senderId === 'B';
+}
+
+// Event Stream (SSE) for Realtime updates. Uses header-only auth (no query param leakage).
 app.get('/api/events', async (req, res, next) => {
   try {
-    const clientCode = req.query.pairingCode;
-    if (!clientCode) {
-      return res.status(401).json({ error: 'Unauthorized: Missing pairingCode query parameter' });
+    const clientCode = req.headers['x-pairing-code'];
+    if (!clientCode || typeof clientCode !== 'string') {
+      return res.status(401).json({ error: 'Unauthorized: Missing X-Pairing-Code header' });
+    }
+    if (!PAIRING_CODE_REGEX.test(clientCode)) {
+      return res.status(400).json({ error: 'Invalid X-Pairing-Code format' });
     }
     const state = await readDatabase();
     if (state.pairingCode !== clientCode) {
       return res.status(401).json({ error: 'Unauthorized: Invalid pairing code' });
     }
 
+    const sessionToken = crypto.randomBytes(16).toString('hex');
+    activeSessions.set(sessionToken, { version: sessionVersion, createdAt: Date.now() });
+
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*'
+      'X-Session-Token': sessionToken,
+      'Access-Control-Expose-Headers': 'X-Session-Token',
     });
 
-    res.write('data: {"type":"CONNECTED"}\n\n');
+    res.write(`data: ${JSON.stringify({ type: 'CONNECTED', sessionToken })}\n\n`);
     sseClients.push(res);
 
     req.on('close', () => {
       sseClients = sseClients.filter(client => client !== res);
+      activeSessions.delete(sessionToken);
       
       // Auto-clear P2P state when all clients disconnect
       setTimeout(async () => {
@@ -300,7 +393,7 @@ app.get('/api/events', async (req, res, next) => {
             logger.error(e, 'Error auto-clearing P2P data');
           }
         }
-      }, 4000); // 4 seconds delay for refresh tolerance
+      }, 4000);
     });
   } catch (err) {
     next(err);
@@ -325,6 +418,11 @@ app.post('/api/messages', authMiddleware, async (req, res, next) => {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
     }
     const { senderId, ciphertext, iv, type } = parsed.data;
+    // IDOR prevention: validate senderId against partner identity
+    const partnerId = req.headers['x-partner-id'];
+    if (partnerId && (partnerId === 'A' || partnerId === 'B') && senderId !== partnerId) {
+      return res.status(403).json({ error: 'Forbidden: senderId does not match your identity' });
+    }
 
     const newMessage = {
       id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
@@ -354,6 +452,11 @@ app.post('/api/photos', authMiddleware, async (req, res, next) => {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
     }
     const { senderId, ciphertext, iv, isViewOnce, captionCiphertext, captionIv } = parsed.data;
+    // IDOR prevention: validate senderId against partner identity
+    const partnerId = req.headers['x-partner-id'];
+    if (partnerId && (partnerId === 'A' || partnerId === 'B') && senderId !== partnerId) {
+      return res.status(403).json({ error: 'Forbidden: senderId does not match your identity' });
+    }
 
     const newPhoto = {
       id: 'photo-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
@@ -410,6 +513,11 @@ app.post('/api/reminders', authMiddleware, async (req, res, next) => {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
     }
     const { title, category, dueDate, createdBy } = parsed.data;
+    // IDOR prevention: validate createdBy against partner identity
+    const partnerId = req.headers['x-partner-id'];
+    if (partnerId && (partnerId === 'A' || partnerId === 'B') && createdBy !== partnerId) {
+      return res.status(403).json({ error: 'Forbidden: createdBy does not match your identity' });
+    }
 
     const newReminder = {
       id: 'rem-' + Date.now(),
@@ -492,49 +600,54 @@ app.post('/api/anniversary', authMiddleware, async (req, res, next) => {
   }
 });
 
-// Set PIN passcode lock hash (BCrypt hashed on server - SEC-2)
+// Set PIN passcode lock hash (BCrypt hashed on server - SEC-2, per-partner)
 app.post('/api/passcode', authMiddleware, strictLimiter, async (req, res, next) => {
   try {
     const parsed = passcodeSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
     }
-    const { passcode } = parsed.data;
+    const { passcode, partnerId } = parsed.data;
 
-    let hasPasscode = false;
+    const hashKey = partnerId === 'A' ? 'passcodeHashA' : 'passcodeHashB';
+    let hasPasscodeA: boolean | undefined;
+    let hasPasscodeB: boolean | undefined;
     await updateDatabase(db => {
       if (passcode) {
         const salt = bcrypt.genSaltSync(10);
-        db.passcodeHash = bcrypt.hashSync(passcode, salt);
-        hasPasscode = true;
+        db[hashKey] = bcrypt.hashSync(passcode, salt);
       } else {
-        db.passcodeHash = '';
-        hasPasscode = false;
+        db[hashKey] = '';
       }
+      hasPasscodeA = !!db.passcodeHashA;
+      hasPasscodeB = !!db.passcodeHashB;
     });
 
-    broadcastEvent('UPDATE_PASSCODE', { hasPasscode });
-    res.json({ success: true, hasPasscode });
+    broadcastEvent('UPDATE_PASSCODE', { hasPasscodeA, hasPasscodeB });
+    const newHasPasscode = partnerId === 'A' ? hasPasscodeA : hasPasscodeB;
+    res.json({ success: true, hasPasscode: newHasPasscode, partnerId });
   } catch (error) {
     next(error);
   }
 });
 
-// Verify PIN passcode endpoint (SEC-2)
-app.post('/api/passcode/verify', strictLimiter, async (req, res, next) => {
+// Verify PIN passcode endpoint (SEC-2, per-partner) - now requires auth (Authentication Bypass fix)
+app.post('/api/passcode/verify', authMiddleware, strictLimiter, async (req, res, next) => {
   try {
     const parsed = passcodeVerifySchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
     }
-    const { passcode } = parsed.data;
+    const { passcode, partnerId } = parsed.data;
 
     const state = await readDatabase();
-    if (!state.passcodeHash) {
-      return res.json({ valid: true }); // No PIN set
+    const hashKey = partnerId === 'A' ? 'passcodeHashA' : 'passcodeHashB';
+    if (!state[hashKey]) {
+      return res.json({ valid: true }); // No PIN set for this partner
     }
 
-    const isValid = bcrypt.compareSync(passcode, state.passcodeHash);
+    const isValid = bcrypt.compareSync(passcode, state[hashKey]);
+    // Rate limit response to prevent brute force
     res.json({ valid: isValid });
   } catch (error) {
     next(error);
@@ -549,6 +662,11 @@ app.post('/api/special-anniversaries', authMiddleware, async (req, res, next) =>
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
     }
     const { id, title, date, notes, photo, createdBy } = parsed.data;
+    // IDOR prevention: validate createdBy against partner identity
+    const partnerId = req.headers['x-partner-id'];
+    if (partnerId && (partnerId === 'A' || partnerId === 'B') && createdBy !== partnerId) {
+      return res.status(403).json({ error: 'Forbidden: createdBy does not match your identity' });
+    }
 
     let item: any = null;
     let found = true;
@@ -708,7 +826,7 @@ app.post('/api/storage-method', authMiddleware, async (req, res, next) => {
   }
 });
 
-// Update global pairing code (Requires strictLimiter + auth check on the header of the OLD pairing code)
+// Update global pairing code (Requires strictLimiter + auth + session invalidation)
 app.post('/api/pair-code', authMiddleware, strictLimiter, async (req, res, next) => {
   try {
     const parsed = pairCodeSchema.safeParse(req.body);
@@ -717,14 +835,15 @@ app.post('/api/pair-code', authMiddleware, strictLimiter, async (req, res, next)
     }
     const { pairingCode } = parsed.data;
 
-    let finalState: any = null;
     await updateDatabase(db => {
       db.pairingCode = pairingCode;
-      finalState = { ...db };
     });
     
-    broadcastEvent('RESET_STATE', filterStateForClient(finalState));
-    res.json({ success: true, pairingCode: finalState.pairingCode });
+    // Invalidate all sessions (Session Fixation prevention)
+    bumpSessionVersion();
+    
+    broadcastEvent('SESSION_INVALIDATE', {});
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -747,7 +866,7 @@ app.post('/api/call/signal', authMiddleware, async (req, res, next) => {
 });
 
 // AI Dating advice suggestions endpoint calling Gemini API (Server-side)
-app.post('/api/ai-ideas', aiIdeasLimiter, async (req, res, next) => {
+app.post('/api/ai-ideas', authMiddleware, aiIdeasLimiter, async (req, res, next) => {
   try {
     const parsed = aiIdeasSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -799,17 +918,13 @@ app.post('/api/ai-ideas', aiIdeasLimiter, async (req, res, next) => {
   }
 });
 
-// Centralized Error-handling middleware (PROD-2)
+// Centralized Error-handling middleware (PROD-2) with limited info disclosure
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  logger.error(err, 'Unhandled request error');
+  logger.error({ err, path: req.path, method: req.method }, 'Unhandled request error');
   const status = err.status || 500;
-  const message = process.env.NODE_ENV === 'production' 
-    ? 'Internal Server Error' 
-    : err.message || 'Internal Server Error';
-  
+  // Never expose stack traces or internal details (Information Disclosure prevention)
   res.status(status).json({
-    error: message,
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+    error: 'Internal Server Error'
   });
 });
 

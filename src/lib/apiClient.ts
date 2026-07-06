@@ -180,7 +180,8 @@ export const apiClient = {
   resetDatabase: async (pairingCode: string, clean: boolean) => {
     return request('/api/reset', {
       method: 'POST',
-      headers: { 'X-Pairing-Code': pairingCode }
+      headers: { 'X-Pairing-Code': pairingCode },
+      body: JSON.stringify({ clean })
     });
   },
 

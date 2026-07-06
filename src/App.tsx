@@ -1706,7 +1706,7 @@ export default function App() {
             const currentStorageMethod = activePartner === 'A' ? coupleData?.storageMethodA : coupleData?.storageMethodB;
 
             if (currentStorageMethod === 'googledrive') {
-              const googleToken = sessionStorage.getItem(`google_access_token_${activePartner}`);
+              const googleToken = localStorage.getItem(`google_access_token_${activePartner}`);
               if (!googleToken) {
                 alert('Phương thức lưu trữ Google Drive đang hoạt động nhưng bạn chưa kết nối Google. Vui lòng kết nối Google ở tab Bảo mật để sao lưu bản ghi.');
                 return;

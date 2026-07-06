@@ -501,8 +501,13 @@ export default function AlbumTab({
   const handleSelectGoogleImage = async (url: string) => {
     setIsLoadingGoogle(true);
     try {
-      // Download remote image and convert to data URI
-      const response = await fetch(url);
+      const headers: Record<string, string> = {};
+      const isGoogleUrl = url.includes('googleusercontent.com') || url.includes('googleapis.com');
+      if (isGoogleUrl && googleToken) {
+        headers['Authorization'] = `Bearer ${googleToken}`;
+      }
+      const response = await fetch(url, { headers });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -511,8 +516,7 @@ export default function AlbumTab({
       };
       reader.readAsDataURL(blob);
     } catch (err) {
-      console.error('Failed to fetch image', err);
-      // If direct fetch is blocked by CORS, we use the url directly or fallback
+      console.error('Failed to fetch image, using URL directly', err);
       setSelectedFile(url);
       setIsLoadingGoogle(false);
     }

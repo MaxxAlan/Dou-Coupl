@@ -23,8 +23,7 @@ let cachedAccessTokens: Record<'A' | 'B', string | null> = {
   B: null
 };
 
-// Listen for Auth changes and cache tokens in localStorage or sessionStorage per partner
-// Note: As per guideline, cached token is kept in-memory or loaded per partner session.
+// Listen for Auth changes and cache tokens in localStorage per partner
 export const initAuth = (
   partnerId: 'A' | 'B',
   onAuthSuccess?: (user: User, token: string) => void,
@@ -32,9 +31,8 @@ export const initAuth = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      // Try to load cached token from sessionStorage for this partner
       const key = `google_access_token_${partnerId}`;
-      const token = sessionStorage.getItem(key) || cachedAccessTokens[partnerId];
+      const token = localStorage.getItem(key) || cachedAccessTokens[partnerId];
       if (token) {
         cachedAccessTokens[partnerId] = token;
         if (onAuthSuccess) onAuthSuccess(user, token);
@@ -43,7 +41,7 @@ export const initAuth = (
       }
     } else {
       cachedAccessTokens[partnerId] = null;
-      sessionStorage.removeItem(`google_access_token_${partnerId}`);
+      localStorage.removeItem(`google_access_token_${partnerId}`);
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -60,7 +58,7 @@ export const googleSignIn = async (partnerId: 'A' | 'B'): Promise<{ user: User; 
 
     const token = credential.accessToken;
     cachedAccessTokens[partnerId] = token;
-    sessionStorage.setItem(`google_access_token_${partnerId}`, token);
+    localStorage.setItem(`google_access_token_${partnerId}`, token);
     return { user: result.user, accessToken: token };
   } catch (error: any) {
     console.error('Google Sign-in failed:', error);
@@ -71,13 +69,13 @@ export const googleSignIn = async (partnerId: 'A' | 'B'): Promise<{ user: User; 
 };
 
 export const getAccessToken = (partnerId: 'A' | 'B'): string | null => {
-  return sessionStorage.getItem(`google_access_token_${partnerId}`) || cachedAccessTokens[partnerId];
+  return localStorage.getItem(`google_access_token_${partnerId}`) || cachedAccessTokens[partnerId];
 };
 
 export const logoutGoogle = async (partnerId: 'A' | 'B') => {
   await auth.signOut();
   cachedAccessTokens[partnerId] = null;
-  sessionStorage.removeItem(`google_access_token_${partnerId}`);
+  localStorage.removeItem(`google_access_token_${partnerId}`);
 };
 
 // ==========================================

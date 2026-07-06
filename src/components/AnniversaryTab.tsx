@@ -229,7 +229,7 @@ export default function AnniversaryTab({
       }
 
       if (currentStorageMethod === 'googledrive') {
-        const googleToken = sessionStorage.getItem(`google_access_token_${activePartner}`);
+        const googleToken = localStorage.getItem(`google_access_token_${activePartner}`);
         if (!googleToken) {
           alert('Bạn chọn lưu trữ Google Drive nhưng chưa kết nối Google. Vui lòng kết nối Google ở tab Bảo mật trước!');
           setIsUploadingLocket(false);

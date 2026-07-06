@@ -1,93 +1,94 @@
 # Duo — Couple App (E2EE) 🔒❤️
 
-Ứng dụng web bảo mật mã hóa đầu cuối (E2EE) dành cho các cặp đôi để chia sẻ tin nhắn, hình ảnh khoảnh khắc (Locket), theo dõi sức khỏe (uống nước), quản lý kế hoạch chung và gợi ý hẹn hò thông qua trí tuệ nhân tạo Gemini AI.
+[English](README.md) | [简体中文](README.zh.md) | [Tiếng Việt](README.vi.md)
 
-Dự án được tối ưu hóa cho cả thiết bị di động (Mobile Web) và máy tính (Desktop) với giao diện tinh tế, sang trọng, cùng cơ chế đồng bộ hóa thời gian thực (realtime) mạnh mẽ.
+An end-to-end encrypted (E2EE) secure web application designed for couples to share messages, moment photos (Locket), track daily hydration, manage shared plans, and get personalized date recommendations powered by Gemini AI.
+
+The project is highly optimized for both Mobile Web and Desktop devices with an elegant, premium user interface, backed by a robust real-time synchronization mechanism.
 
 ---
 
-## 🛠️ Công Nghệ Sử Dụng
+## 🛠️ Tech Stack
 
 ### Frontend
 - **Framework**: React 18, Vite
-- **Styling**: TailwindCSS, CSS Variables (Chủ đề tối, màu neon vàng cát sang trọng)
+- **Styling**: TailwindCSS, CSS Variables (Dark theme with luxury sand-gold neon accents)
 - **Animations**: Motion (Framer Motion)
 - **Icons**: Lucide React
 
 ### Backend
 - **Server**: Node.js + Express
-- **Realtime**: Server-Sent Events (SSE)
-- **Database**: Firebase (Firestore cho thông tin người dùng và couple metadata), Tệp JSON phẳng `db.json` trên cục bộ cho dữ liệu chia sẻ của cặp đôi.
+- **Real-time Sync**: Server-Sent Events (SSE)
+- **Database**: Firebase (Firestore for onboarding and auth/metadata), Local flat-file JSON database `db.json` for shared couple data.
 
-### Bảo mật & Mã hóa
-- **Mật mã học**: Web Crypto API (PBKDF2, AES-GCM-256)
-- **Xác thực PIN**: Bcrypt (Hash phía server)
-- **Kiểm tra dữ liệu**: Zod Schema validation
-- **An toàn luồng**: Memory Mutex (`async-mutex`)
-- **Tấn công Replay & CSRF**: Nonce + Timestamp + Token CSRF
-- **Headers bảo mật**: Helmet CSP (Content Security Policy)
-
----
-
-## 🔐 Kiến Trúc Bảo Mật & E2EE
-
-Ứng dụng tuân thủ nghiêm ngặt mô hình bảo mật Zero-Knowledge:
-- **Tạo khóa (Key Derivation)**: Khóa đối xứng được sinh ra hoàn toàn ở phía máy khách (Client-side) thông qua thuật toán **PBKDF2** (100,000 vòng lặp) từ mã mời liên kết (`pairingCode`) và muối bảo mật. Khóa này chỉ nằm trong bộ nhớ RAM của thiết bị và không bao giờ được gửi lên Server.
-- **Mã hóa (Encryption)**: Tất cả tin nhắn chat, ảnh khoảnh khắc (Locket) và captions đều được mã hóa bằng thuật toán **AES-GCM-256** trước khi tải lên máy chủ.
-- **Cách ly Người dùng (Isolation)**: Hai người dùng kết nối qua một không gian chung nhưng hoạt động độc lập. Việc cài đặt mật mã khóa PIN (`passcode`) được băm bằng `bcrypt` ở phía server và xác thực gián tiếp qua endpoint bảo mật để tránh lộ khóa.
-- **An toàn trước các mối đe dọa (Threat Mitigation)**:
-  - **XSS**: React tự động escape text; các dữ liệu nhạy cảm được validate đầu vào nghiêm ngặt.
-  - **Path Traversal**: Hệ thống đọc tệp tĩnh `db.json` được định cấu hình đường dẫn tuyệt đối bất biến.
-  - **Prototype Pollution**: Zod Schema loại bỏ toàn bộ các trường dư thừa không khớp định nghĩa đầu vào.
+### Security & Encryption
+- **Cryptography**: Web Crypto API (PBKDF2, AES-GCM-256)
+- **PIN Verification**: Bcrypt (Server-side hashing)
+- **Data Validation**: Zod Schema validation
+- **Concurrency Control**: Memory Mutex (`async-mutex`)
+- **Anti-Replay & CSRF**: Nonce + Timestamp + CSRF Token
+- **Security Headers**: Helmet CSP (Content Security Policy)
 
 ---
 
-## ✨ Tính Năng Nổi Bật
+## 🔐 Security Architecture & E2EE
 
-### 1. Trò chuyện mật ngọt (Secret Chat)
-- Tin nhắn dạng chữ hoặc tin nhắn thoại (Voice Messages) được mã hóa E2EE hoàn toàn.
-- Hỗ trợ chế độ "Xem một lần" (View Once) tự động hủy vĩnh viễn trên server sau khi xem.
-- Bộ phân tích mật mã (Crypto Inspector) trực quan cho phép xem bản rõ (Plaintext) và bản mã (Ciphertext) kèm khóa AES-GCM dạng Hex ngay trên UI.
-
-### 2. Trạm Cấp Nước (Hydration Hub)
-- Theo dõi tiến trình uống nước chung của hai người trong ngày.
-- Bổ sung nhanh dung tích nước với 5 mức: `250ml`, `350ml`, `500ml`, `750ml`, `1L`.
-- **Chụp ảnh xác minh**: Khi ghi nhận lượng nước uống, người dùng có thể chọn mở camera phụ, chụp ảnh xác minh và tự động gửi ảnh đã mã hóa E2EE lên lưới Locket.
-
-### 3. Khoảnh khắc Locket (Album)
-- Lưới ảnh thời gian thực lưu trữ các kỉ niệm đáng nhớ.
-- Hỗ trợ sao lưu dự phòng (Backup) dữ liệu ảnh mã hóa trực tiếp lên Google Drive cá nhân của từng partner thay vì lưu trữ trên server chung.
-
-### 4. Kế hoạch hẹn hò & Kỷ niệm
-- Quản lý danh sách việc cần làm (TodoList) sắp xếp theo thời gian đến hạn.
-- Đếm số ngày bên nhau với danh sách các cột mốc kỷ niệm đặc biệt.
-- **Cố vấn Gemini AI**: Đề xuất các ý tưởng hẹn hò độc đáo dựa trên số ngày bên nhau của hai bạn.
+The application strictly adheres to the Zero-Knowledge security model:
+- **Key Derivation**: Symmetric encryption keys are generated entirely client-side. The key is derived using the **PBKDF2** algorithm (100,000 iterations) from the invitation pairing code (`pairingCode`) and a secure salt. This key exists only in the device's RAM and is never sent to the server.
+- **Encryption**: All chat messages, Locket moments, and captions are encrypted locally via **AES-GCM-256** before being uploaded to the server.
+- **Partner Isolation**: Partners operate within a shared space but function independently. The PIN lock (`passcode`) settings are hashed using `bcrypt` server-side and authenticated indirectly through a secure endpoint to prevent key exposure.
+- **Threat Mitigation**:
+  - **XSS**: React automatically escapes text inputs; strict input schemas are validated.
+  - **Path Traversal**: Read operations on the flat `db.json` file use immutable, absolute file paths.
+  - **Prototype Pollution**: Zod Schema strips away all redundant and matching-violating fields.
 
 ---
 
-## 🚀 Hướng Dẫn Cài Đặt & Chạy Cục Bộ (Local)
+## ✨ Features
 
+### 1. Secret Chat
+- Send text or voice messages (Voice Messages) with full E2EE.
+- Support "View Once" mode, which automatically deletes messages permanently from the server after they are opened.
+- Real-time Crypto Inspector on the UI allows viewing plaintext, ciphertext, and the raw hex AES-GCM key.
+
+### 2. Hydration Hub
+- Track shared daily water drinking goals and progress.
+- Quick add options with 5 preset amounts: `250ml`, `350ml`, `500ml`, `750ml`, `1L`.
+- **Photo Verification**: When logging water intake, users can choose to open their camera, take a verification photo, and automatically upload the E2EE-encrypted photo to the Locket photo grid.
+
+### 3. Locket Album
+- A real-time photo grid storing memorable moments.
+- Supports backing up encrypted photo data directly to each partner's personal Google Drive instead of storing it on the public server.
+
+### 4. Plans & Anniversary
+- Todo list manager (TodoList) sorted by due dates.
+- Keep track of days spent together with custom milestone badges.
+- **Gemini AI Advisor**: Suggests unique dating ideas tailored to your relationship duration.
+
+---
+
+## 🚀 Setup & Local Installation
 
 # 🎥 Demo Video
 [![Duo Couple App Demo](https://github.com/user-attachments/assets/c30da2d6-15de-420f-bd6c-3fcb6f2c3493)](https://youtu.be/njZ_hRffWyM)
 
-### 1. Cài đặt dependencies
+### 1. Install dependencies
 ```bash
 npm install
 ```
 
-### 2. Cấu hình biến môi trường
-Sao chép tệp mẫu để tạo tệp `.env`:
+### 2. Configure environment variables
+Copy the template file to create `.env`:
 ```bash
 cp .env.example .env
 ```
-Mở file `.env` mới tạo và cấu hình các khóa cần thiết:
+Open the newly created `.env` file and configure the required keys:
 ```env
 PORT=3000
 NODE_ENV=development
 GEMINI_API_KEY=your_gemini_api_key
 
-# Cấu hình Firebase Client (Dùng cho Onboarding / Auth)
+# Firebase Client Settings (used for Onboarding / Auth)
 VITE_FIREBASE_API_KEY=your_firebase_api_key
 VITE_FIREBASE_AUTH_DOMAIN=your_auth_domain
 VITE_FIREBASE_PROJECT_ID=your_project_id
@@ -96,36 +97,36 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 VITE_FIREBASE_APP_ID=your_app_id
 ```
 
-### 3. Chạy chế độ phát triển (Development)
+### 3. Run in Development mode
 ```bash
 npm run dev
 ```
-Truy cập ứng dụng tại địa chỉ: `http://localhost:3000`
+Access the application at: `http://localhost:3000`
 
-### 4. Build đóng gói
-Để biên dịch và đóng gói ứng dụng cho production:
+### 4. Build for Production
+To compile and package the app for production:
 ```bash
 npm run build
 ```
 
-### 5. Chạy bản build Production
+### 5. Start Production server
 ```bash
 npm run start
 ```
 
 ---
 
-## 📦 Cấu trúc Thư mục Chính
-- `server.ts`: Điểm khởi chạy của backend Express, các API endpoints và luồng sự kiện SSE.
-- `src/App.tsx`: Trình điều khiển ứng dụng chính, quản lý state và luồng sự kiện SSE.
-- `src/components/`: Chứa các tab tính năng (`ChatTab.tsx`, `AlbumTab.tsx`, `SecurityHub.tsx`,...).
+## 📦 Main Directory Structure
+- `server.ts`: Express backend entry point, API endpoints, and Server-Sent Events (SSE) stream.
+- `src/App.tsx`: Main application controller, handles state and SSE streaming.
+- `src/components/`: Modular tab components (`ChatTab.tsx`, `AlbumTab.tsx`, `SecurityHub.tsx`, etc.).
 - `src/lib/`:
-  - `crypto.ts`: Hàm mã hóa/giải mã đối xứng, tạo khóa PBKDF2.
-  - `apiClient.ts`: Lớp kết nối HTTP API dùng chung.
-  - `storage.ts`: Quản lý truy cập `localStorage` tập trung.
-- `db.json`: Cơ sở dữ liệu tệp phẳng cục bộ mô phỏng.
+  - `crypto.ts`: Core functions for symmetric encryption/decryption, and PBKDF2 key generation.
+  - `apiClient.ts`: Shareable HTTP API Client class.
+  - `storage.ts`: Centralized browser `localStorage` management.
+- `db.json`: Flat-file local simulated database.
 
 ---
 
-## 📄 Bản Quyền & Phát Triển
-Ứng dụng được phát triển bởi **MaxxAlan**. Mọi đóng góp hoặc báo cáo lỗi xin vui lòng liên hệ qua kho lưu trữ dự án.
+## 📄 License & Development
+The application is developed by **MaxxAlan**. For any contributions or bug reports, please open an issue in the project repository.

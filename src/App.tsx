@@ -40,7 +40,7 @@ import {
   updateDoc
 } from 'firebase/firestore';
 
-import { Partner, EncryptedMessage, EncryptedPhoto, Reminder } from './types';
+import { Partner, EncryptedMessage, EncryptedPhoto, Reminder, WaterLog } from './types';
 import { deriveSymmetricKey, encryptData } from './lib/crypto';
 import { auth, db } from './lib/firebase';
 import { apiClient, BASE_URL } from './lib/apiClient';
@@ -109,13 +109,14 @@ export default function App() {
   const [photos, setPhotos] = useState<EncryptedPhoto[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [specialAnniversaries, setSpecialAnniversaries] = useState<any[]>([]);
+  const [waterLogs, setWaterLogs] = useState<WaterLog[]>([]);
 
   // Cryptographic Keys
   const [symmetricKey, setSymmetricKey] = useState<CryptoKey | null>(null);
 
   // Unified UX States (Single device mode - COM-1)
   const [activePartner, setActivePartner] = useState<'A' | 'B'>('A');
-  const [activeTab, setActiveTab] = useState<'anniversary' | 'chat' | 'album' | 'reminders' | 'security'>('anniversary');
+  const [activeTab, setActiveTab] = useState<'anniversary' | 'chat' | 'album' | 'reminders' | 'security'>('album');
   const [isSettingPasscode, setIsSettingPasscode] = useState<boolean>(false);
   const [isUnlockedA, setIsUnlockedA] = useState<boolean>(false);
   const [isUnlockedB, setIsUnlockedB] = useState<boolean>(false);
@@ -207,11 +208,37 @@ export default function App() {
     }, [])
   });
 
+  // Synthesizes a sweet couple-themed notification sound chime
+  const playNotificationSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const playTone = (freq: number, start: number, duration: number) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(0.12, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(start);
+        osc.stop(start + duration);
+      };
+      const now = audioCtx.currentTime;
+      playTone(784, now, 0.22); // G5
+      playTone(1046, now + 0.08, 0.32); // C6
+    } catch (e) {
+      console.warn('Audio Context blocked or failed:', e);
+    }
+  };
+
   // Reactive UI Notification Banner
   const [notification, setNotification] = useState<{ title: string; body: string; type: string } | null>(null);
 
   const triggerNotification = (title: string, body: string, type = 'general') => {
     setNotification({ title, body, type });
+    playNotificationSound();
     setTimeout(() => {
       setNotification(null);
     }, 4000);
@@ -238,6 +265,7 @@ export default function App() {
       setPhotos(state.photos || []);
       setReminders(state.reminders || []);
       setSpecialAnniversaries(state.specialAnniversaries || []);
+      setWaterLogs(state.waterLogs || []);
       
       // Update coupleData with per-partner passcode and other properties
       setCoupleData(prev => ({
@@ -388,12 +416,20 @@ export default function App() {
             case 'NEW_MESSAGE':
               setMessages(prev => {
                 if (prev.some(m => m.id === data.id)) return prev;
+                if (data.senderId !== activePartner) {
+                  const pName = activePartner === 'A' ? (coupleData?.partnerB?.name || 'Nửa kia') : (coupleData?.partnerA?.name || 'Nửa kia');
+                  triggerNotification('Tin nhắn mới 💬', `${pName} vừa nhắn tin cho bạn.`);
+                }
                 return [...prev, data];
               });
               break;
             case 'NEW_PHOTO':
               setPhotos(prev => {
                 if (prev.some(p => p.id === data.id)) return prev;
+                if (data.senderId !== activePartner) {
+                  const pName = activePartner === 'A' ? (coupleData?.partnerB?.name || 'Nửa kia') : (coupleData?.partnerA?.name || 'Nửa kia');
+                  triggerNotification('Locket mới 📸', `${pName} vừa đăng một ảnh khoảnh khắc mới.`);
+                }
                 return [data, ...prev];
               });
               break;
@@ -403,6 +439,10 @@ export default function App() {
             case 'NEW_REMINDER':
               setReminders(prev => {
                 if (prev.some(r => r.id === data.id)) return prev;
+                if (data.createdBy !== activePartner) {
+                  const pName = activePartner === 'A' ? (coupleData?.partnerB?.name || 'Nửa kia') : (coupleData?.partnerA?.name || 'Nửa kia');
+                  triggerNotification('Kế hoạch mới 📅', `${pName} đã thêm kế hoạch: "${data.title}"`);
+                }
                 return [...prev, data];
               });
               break;
@@ -456,6 +496,20 @@ export default function App() {
               setPhotos(data.photos || []);
               setReminders(data.reminders || []);
               setSpecialAnniversaries(data.specialAnniversaries || []);
+              setWaterLogs(data.waterLogs || []);
+              break;
+            case 'NEW_WATER_LOG':
+              setWaterLogs(prev => {
+                if (prev.some(w => w.id === data.id)) return prev;
+                if (data.partnerId !== activePartner) {
+                  const pName = activePartner === 'A' ? (coupleData?.partnerB?.name || 'Nửa kia') : (coupleData?.partnerA?.name || 'Nửa kia');
+                  triggerNotification('Uống nước thôi 💧', `${pName} vừa uống thêm ${data.amount}ml nước.`);
+                }
+                return [...prev, data];
+              });
+              break;
+            case 'DELETE_WATER_LOG':
+              setWaterLogs(prev => prev.filter(w => w.id !== data.id));
               break;
             case 'CALL_SIGNAL':
               if (data.recipientId === activePartner) {
@@ -688,6 +742,24 @@ export default function App() {
       await apiClient.deletePhoto(coupleData.pairingCode, id);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleAddWaterLog = async (partnerId: 'A' | 'B', amount: number) => {
+    if (!coupleData?.pairingCode) return;
+    try {
+      await apiClient.addWaterLog(coupleData.pairingCode, partnerId, amount);
+    } catch (e) {
+      console.error('Failed to add water log:', e);
+    }
+  };
+
+  const handleDeleteWaterLog = async (id: string) => {
+    if (!coupleData?.pairingCode) return;
+    try {
+      await apiClient.deleteWaterLog(coupleData.pairingCode, id);
+    } catch (e) {
+      console.error('Failed to delete water log:', e);
     }
   };
 
@@ -1433,6 +1505,9 @@ export default function App() {
               onDeletePhoto={handleDeletePhoto}
               storageMethodA={coupleData?.storageMethodA}
               storageMethodB={coupleData?.storageMethodB}
+              waterLogs={waterLogs}
+              onAddWaterLog={handleAddWaterLog}
+              onDeleteWaterLog={handleDeleteWaterLog}
             />
           )}
           {activeTab === 'reminders' && (

@@ -105,6 +105,12 @@ const storageMethodSchema = z.object({
   storageMethod: z.enum(['p2p', 'googledrive'])
 });
 
+const waterLogSchema = z.object({
+  partnerId: z.enum(['A', 'B']),
+  amount: z.number().int().min(50).max(5000),
+  timestamp: z.number().optional()
+});
+
 const pairCodeSchema = z.object({
   pairingCode: z.string().min(4).max(50)
 });
@@ -271,6 +277,7 @@ function filterStateForClient(state: any) {
   delete cleanState.passcodeHashB;
   cleanState.hasPasscodeA = !!state.passcodeHashA;
   cleanState.hasPasscodeB = !!state.passcodeHashB;
+  cleanState.waterLogs = state.waterLogs || [];
   return cleanState;
 }
 
@@ -821,6 +828,69 @@ app.post('/api/storage-method', authMiddleware, async (req, res, next) => {
 
     broadcastEvent('UPDATE_STORAGE_METHOD', { partnerId, storageMethod });
     res.json({ success: true, storageMethodA: finalState.storageMethodA, storageMethodB: finalState.storageMethodB });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Ghi nhận uống nước
+app.post('/api/water', authMiddleware, async (req, res, next) => {
+  try {
+    const parsed = waterLogSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
+    }
+    const { partnerId, amount, timestamp } = parsed.data;
+    
+    // IDOR prevention: validate partnerId against request identity
+    const xPartnerId = req.headers['x-partner-id'];
+    if (xPartnerId && (xPartnerId === 'A' || xPartnerId === 'B') && partnerId !== xPartnerId) {
+      return res.status(403).json({ error: 'Forbidden: partnerId does not match your identity' });
+    }
+
+    const newLog = {
+      id: 'water-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      partnerId,
+      amount,
+      timestamp: timestamp || Date.now()
+    };
+
+    await updateDatabase(db => {
+      if (!db.waterLogs) {
+        db.waterLogs = [];
+      }
+      db.waterLogs.push(newLog);
+    });
+
+    broadcastEvent('NEW_WATER_LOG', newLog);
+    res.json({ success: true, waterLog: newLog });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Xóa/hoàn tác ghi nhận uống nước
+app.delete('/api/water/:id', authMiddleware, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    let found = false;
+
+    await updateDatabase(db => {
+      if (db.waterLogs) {
+        const exists = db.waterLogs.some((w: any) => w.id === id);
+        if (exists) {
+          db.waterLogs = db.waterLogs.filter((w: any) => w.id !== id);
+          found = true;
+        }
+      }
+    });
+
+    if (!found) {
+      return res.status(404).json({ error: 'Water log not found' });
+    }
+
+    broadcastEvent('DELETE_WATER_LOG', { id });
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }

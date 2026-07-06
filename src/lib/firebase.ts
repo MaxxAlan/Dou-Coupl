@@ -3,13 +3,13 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 const firebaseConfig = {
-  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY,
-  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID,
-  measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID,
+  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY || 'AIzaSyAPBt0zSrbSILj00pkgXBOhT7W5r8dCOyc',
+  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN || 'dou-coupl.firebaseapp.com',
+  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID || 'dou-coupl',
+  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET || 'dou-coupl.firebasestorage.app',
+  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID || '92616651616',
+  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID || '1:92616651616:web:644caeb220c216883ba405',
+  measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID || 'G-BEG05YSEZ3',
 };
 
 // Initialize Firebase SDK

@@ -210,6 +210,24 @@ export const apiClient = {
     });
   },
 
+  // 16a. Add water drinking log
+  addWaterLog: async (pairingCode: string, partnerId: 'A' | 'B', amount: number) => {
+    return request('/api/water', {
+      method: 'POST',
+      headers: { 'X-Pairing-Code': pairingCode },
+      body: JSON.stringify({ partnerId, amount }),
+      partnerId
+    });
+  },
+
+  // 16b. Delete water drinking log
+  deleteWaterLog: async (pairingCode: string, id: string) => {
+    return request(`/api/water/${id}`, {
+      method: 'DELETE',
+      headers: { 'X-Pairing-Code': pairingCode }
+    });
+  },
+
   // 17. Generic post method
   post: async (path: string, body: any, headers: Record<string, string> = {}) => {
     return request(path, {

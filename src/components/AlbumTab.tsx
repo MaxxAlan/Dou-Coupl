@@ -25,9 +25,11 @@ import {
   ArrowLeft,
   Binary,
   ShieldAlert,
-  Key
+  Key,
+  Droplet,
+  RotateCcw
 } from 'lucide-react';
-import { EncryptedPhoto, Partner } from '../types';
+import { EncryptedPhoto, Partner, WaterLog } from '../types';
 import { encryptData, decryptData } from '../lib/crypto';
 import { ROMANTIC_PRESETS } from '../lib/demoData';
 import { 
@@ -57,6 +59,9 @@ interface AlbumTabProps {
   onDeletePhoto: (id: string) => void;
   storageMethodA?: 'p2p' | 'googledrive';
   storageMethodB?: 'p2p' | 'googledrive';
+  waterLogs?: WaterLog[];
+  onAddWaterLog?: (partnerId: 'A' | 'B', amount: number) => void;
+  onDeleteWaterLog?: (id: string) => void;
 }
 
 type UploadTab = 'device' | 'camera' | 'drive' | 'photos';
@@ -70,8 +75,49 @@ export default function AlbumTab({
   onUploadPhoto,
   onDeletePhoto,
   storageMethodA,
-  storageMethodB
+  storageMethodB,
+  waterLogs = [],
+  onAddWaterLog,
+  onDeleteWaterLog
 }: AlbumTabProps) {
+  // --- HYDRATION HUB CALCULATIONS ---
+  const todayStr = new Date().toDateString();
+  const todayLogs = waterLogs.filter(log => new Date(log.timestamp).toDateString() === todayStr);
+  const totalA = todayLogs.filter(log => log.partnerId === 'A').reduce((sum, log) => sum + log.amount, 0);
+  const totalB = todayLogs.filter(log => log.partnerId === 'B').reduce((sum, log) => sum + log.amount, 0);
+  const goal = 2000; // 2000 ml
+  const percentA = Math.min(100, Math.round((totalA / goal) * 100));
+  const percentB = Math.min(100, Math.round((totalB / goal) * 100));
+
+  // Determine relative comparisons
+  let comparisonText = '';
+  if (totalA === 0 && totalB === 0) {
+    comparisonText = 'Hôm nay chưa ai uống nước cả. Bắt đầu ngay nhé! 💧';
+  } else if (totalA === totalB) {
+    comparisonText = 'Cả hai đang uống bằng nhau! Cùng duy trì nhé! 🤝';
+  } else {
+    const diff = Math.abs(totalA - totalB);
+    const leader = totalA > totalB ? partnerA.name : partnerB.name;
+    const runner = totalA > totalB ? partnerB.name : partnerA.name;
+    comparisonText = `${leader} đang dẫn trước ${runner} ${diff}ml! 🏆`;
+  }
+
+  // Get last log made by current user to allow undo
+  const myTodayLogs = todayLogs.filter(log => log.partnerId === activePartner);
+  const lastMyLog = myTodayLogs.length > 0 ? myTodayLogs[myTodayLogs.length - 1] : null;
+
+  const handleDrink = (amount: number) => {
+    if (onAddWaterLog) {
+      onAddWaterLog(activePartner, amount);
+    }
+  };
+
+  const handleUndoDrink = () => {
+    if (lastMyLog && onDeleteWaterLog) {
+      onDeleteWaterLog(lastMyLog.id);
+    }
+  };
+
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [activeUploadTab, setActiveUploadTab] = useState<UploadTab>('device');
@@ -105,6 +151,99 @@ export default function AlbumTab({
   const [cameraError, setCameraError] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Hydration verification camera states
+  const [pendingWaterDrink, setPendingWaterDrink] = useState<{ amount: number } | null>(null);
+  const [isWaterCameraOpen, setIsWaterCameraOpen] = useState<boolean>(false);
+  const [waterCameraStream, setWaterCameraStream] = useState<MediaStream | null>(null);
+  const [waterCameraError, setWaterCameraError] = useState<boolean>(false);
+  const waterVideoRef = useRef<HTMLVideoElement | null>(null);
+  const waterCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Start water camera
+  const startWaterCamera = async () => {
+    setWaterCameraError(false);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: 400, height: 405 }
+      });
+      setWaterCameraStream(stream);
+      if (waterVideoRef.current) {
+        waterVideoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      console.warn('Unable to access video camera for water verification:', err);
+      setWaterCameraError(true);
+    }
+  };
+
+  // Stop water camera
+  const stopWaterCamera = () => {
+    if (waterCameraStream) {
+      waterCameraStream.getTracks().forEach(track => track.stop());
+      setWaterCameraStream(null);
+    }
+  };
+
+  // Clean up water camera on unmount
+  useEffect(() => {
+    return () => {
+      if (waterCameraStream) {
+        waterCameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [waterCameraStream]);
+
+  // Upload E2EE photo for water verification
+  const uploadWaterVerificationPhoto = async (dataUrl: string, amount: number) => {
+    if (!symmetricKey) return;
+    try {
+      let processedImg = dataUrl;
+      try {
+        processedImg = await compressAndResizeImage(dataUrl, 600, 0.7);
+      } catch (compressErr) {
+        console.warn('Compression failed, using raw snapshot:', compressErr);
+      }
+
+      const { ciphertext: imgCiphertext, iv: imgIv } = await encryptData(processedImg, symmetricKey);
+      const captionText = `Đã uống ${amount}ml nước! 💧`;
+      const { ciphertext: capCiphertext, iv: capIv } = await encryptData(captionText, symmetricKey);
+
+      const currentStorageMethod = activePartner === 'A' ? storageMethodA : storageMethodB;
+
+      if (currentStorageMethod === 'googledrive') {
+        if (!googleToken) {
+          alert('Bạn chọn lưu trữ Google Drive nhưng chưa kết nối Google. Vui lòng kết nối tài khoản Google trước!');
+          return;
+        }
+
+        const timestamp = Date.now();
+        const payload = JSON.stringify({
+          ciphertext: imgCiphertext,
+          iv: imgIv
+        });
+
+        const base64Data = `data:text/plain;base64,${btoa(unescape(encodeURIComponent(payload)))}`;
+
+        const driveFile = await uploadFileToGoogleDrive(
+          activePartner,
+          `DUO_E2EE_WATER_${timestamp}.enc`,
+          'text/plain',
+          base64Data
+        );
+
+        onUploadPhoto(`drive://${driveFile.id}`, 'drive-iv', false, capCiphertext, capIv);
+      } else {
+        onUploadPhoto(imgCiphertext, imgIv, false, capCiphertext, capIv);
+      }
+    } catch (error) {
+      console.error('Failed to upload water verification photo:', error);
+    }
+  };
+
+  const handleDrinkClick = (amount: number) => {
+    setPendingWaterDrink({ amount });
+  };
 
   // Retrieve Key Hex using useKeyHex custom hook
   const symmetricKeyHex = useKeyHex(symmetricKey);
@@ -469,7 +608,126 @@ export default function AlbumTab({
       </div>
 
       {/* Main Grid View */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-20 scrollbar-thin scrollbar-thumb-white/5">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-20 scrollbar-thin scrollbar-thumb-white/5 animate-fade-in">
+        {/* Hydration Hub (Trạm Cấp Nước) */}
+        <div className="bg-[#0e0e0e]/80 border border-white/5 rounded-2xl p-4 shadow-lg backdrop-blur-sm relative overflow-hidden shrink-0 select-none">
+          {/* Subtle water glow background effect */}
+          <div className="absolute -right-12 -bottom-12 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
+          
+          <div className="flex items-center justify-between mb-3.5 relative z-10">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                <Droplet className="w-4 h-4 fill-blue-400/20" />
+              </div>
+              <div>
+                <h3 className="text-xs font-semibold text-slate-200">Trạm Cấp Nước</h3>
+                <p className="text-[10px] text-slate-400">Mục tiêu: {goal}ml mỗi ngày</p>
+              </div>
+            </div>
+            {lastMyLog && (
+              <button
+                onClick={handleUndoDrink}
+                className="flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-red-400 transition-colors cursor-pointer bg-white/5 border border-white/10 rounded-lg px-2 py-1 relative z-10"
+                title="Hoàn tác lần uống gần nhất"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Hoàn tác ({lastMyLog.amount}ml)</span>
+              </button>
+            )}
+          </div>
+
+          {/* Progress Section */}
+          <div className="grid grid-cols-2 gap-3.5 my-3 relative z-10">
+            {/* Partner A */}
+            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 relative flex flex-col justify-between">
+              <div className="flex items-center gap-2 mb-2">
+                <img src={partnerA.avatar} alt={partnerA.name} className="w-5 h-5 rounded-full object-cover border border-white/10" />
+                <span className="text-[10.5px] font-semibold text-slate-350 truncate">{partnerA.name}</span>
+              </div>
+              <div>
+                <div className="flex justify-between items-baseline mb-1">
+                  <span className="text-xs font-mono font-bold text-blue-400">{totalA}<span className="text-[9px] text-slate-500 font-normal ml-0.5">ml</span></span>
+                  <span className="text-[10px] font-mono text-slate-450">{percentA}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${percentA}%` }}
+                    transition={{ duration: 0.8, ease: "easeOut" }}
+                    className="h-full bg-gradient-to-r from-blue-500 to-sky-400 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Partner B */}
+            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 relative flex flex-col justify-between">
+              <div className="flex items-center gap-2 mb-2">
+                <img src={partnerB.avatar} alt={partnerB.name} className="w-5 h-5 rounded-full object-cover border border-white/10" />
+                <span className="text-[10.5px] font-semibold text-slate-355 truncate">{partnerB.name}</span>
+              </div>
+              <div>
+                <div className="flex justify-between items-baseline mb-1">
+                  <span className="text-xs font-mono font-bold text-sky-400">{totalB}<span className="text-[9px] text-slate-500 font-normal ml-0.5">ml</span></span>
+                  <span className="text-[10px] font-mono text-slate-405">{percentB}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${percentB}%` }}
+                    transition={{ duration: 0.8, ease: "easeOut" }}
+                    className="h-full bg-gradient-to-r from-sky-500 to-teal-400 rounded-full shadow-[0_0_8px_rgba(14,165,233,0.5)]"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Check-in Buttons */}
+          <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-white/5 relative z-10">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-medium text-slate-400 shrink-0">Ghi nhận lượng nước:</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button 
+                onClick={() => handleDrinkClick(250)}
+                className="flex items-center gap-1 text-[10px] font-medium bg-blue-500/10 border border-blue-500/20 text-blue-300 rounded-xl px-2.5 py-1.5 hover:bg-blue-500/20 active:scale-95 transition-all cursor-pointer"
+              >
+                <span>🥛 +250ml</span>
+              </button>
+              <button 
+                onClick={() => handleDrinkClick(350)}
+                className="flex items-center gap-1 text-[10px] font-medium bg-sky-500/10 border border-sky-500/20 text-sky-300 rounded-xl px-2.5 py-1.5 hover:bg-sky-500/20 active:scale-95 transition-all cursor-pointer"
+              >
+                <span>🥤 +350ml</span>
+              </button>
+              <button 
+                onClick={() => handleDrinkClick(500)}
+                className="flex items-center gap-1 text-[10px] font-medium bg-teal-500/10 border border-teal-500/20 text-teal-300 rounded-xl px-2.5 py-1.5 hover:bg-teal-500/20 active:scale-95 transition-all cursor-pointer"
+              >
+                <span>💧 +500ml</span>
+              </button>
+              <button 
+                onClick={() => handleDrinkClick(750)}
+                className="flex items-center gap-1 text-[10px] font-medium bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 rounded-xl px-2.5 py-1.5 hover:bg-indigo-500/20 active:scale-95 transition-all cursor-pointer"
+              >
+                <span>🏺 +750ml</span>
+              </button>
+              <button 
+                onClick={() => handleDrinkClick(1000)}
+                className="flex items-center gap-1 text-[10px] font-medium bg-violet-500/10 border border-violet-500/20 text-violet-300 rounded-xl px-2.5 py-1.5 hover:bg-violet-500/20 active:scale-95 transition-all cursor-pointer"
+              >
+                <span>🫙 +1L</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Fun comparison / motivational message */}
+          <div className="mt-2.5 text-center relative z-10">
+            <p className="text-[9.5px] italic text-slate-400">{comparisonText}</p>
+          </div>
+        </div>
+
         {photos.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 py-24">
             <motion.div
@@ -1301,6 +1559,143 @@ export default function AlbumTab({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Verification Choice Modal */}
+      {pendingWaterDrink && !isWaterCameraOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#0e0e0e] border border-white/10 rounded-2xl p-5 max-w-sm w-full shadow-2xl text-center space-y-4 relative z-50 select-none"
+          >
+            <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 mx-auto">
+              <Droplet className="w-6 h-6 fill-blue-400/20" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-semibold text-slate-100 font-sans">Xác minh uống nước</h4>
+              <p className="text-xs text-slate-400 leading-relaxed font-sans">
+                Bạn muốn chụp ảnh xác thực cho lượt uống <span className="font-bold text-blue-400 font-mono">{pendingWaterDrink.amount}ml</span> này không?
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={() => {
+                  setIsWaterCameraOpen(true);
+                  startWaterCamera();
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-2.5 text-xs font-semibold active:scale-98 transition-all cursor-pointer font-sans"
+              >
+                Chụp ảnh xác minh 📸
+              </button>
+              <button
+                onClick={() => {
+                  handleDrink(pendingWaterDrink.amount);
+                  setPendingWaterDrink(null);
+                }}
+                className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 rounded-xl py-2.5 text-xs font-semibold active:scale-98 transition-all cursor-pointer font-sans"
+              >
+                Ghi nhanh không ảnh ⚡
+              </button>
+              <button
+                onClick={() => setPendingWaterDrink(null)}
+                className="w-full text-xs font-medium text-slate-500 hover:text-slate-350 py-1 transition-colors cursor-pointer font-sans"
+              >
+                Hủy
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Water Camera Modal */}
+      {isWaterCameraOpen && pendingWaterDrink && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black p-4 md:p-6 select-none">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Droplet className="w-4 h-4 text-blue-400" />
+              <span className="text-xs font-semibold text-slate-200 font-sans">Xác minh hình ảnh - {pendingWaterDrink.amount}ml</span>
+            </div>
+            <button 
+              onClick={() => {
+                stopWaterCamera();
+                setIsWaterCameraOpen(false);
+              }}
+              className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex-1 flex flex-col items-center justify-center max-w-md mx-auto w-full">
+            {waterCameraError ? (
+              <div className="text-center p-6 bg-red-950/20 border border-red-950/30 rounded-2xl w-full">
+                <p className="text-xs text-red-400 font-sans">Không thể truy cập camera thiết bị.</p>
+                <button 
+                  onClick={startWaterCamera}
+                  className="mt-3 text-xs bg-red-950/40 hover:bg-red-950/60 border border-red-500/20 text-red-300 px-3 py-1.5 rounded-xl transition-all cursor-pointer font-sans"
+                >
+                  Thử lại
+                </button>
+              </div>
+            ) : (
+              <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-zinc-950 border border-white/5 shadow-inner">
+                <video 
+                  ref={waterVideoRef}
+                  autoPlay 
+                  playsInline 
+                  muted
+                  className="w-full h-full object-cover scale-x-[-1]"
+                />
+                <div className="absolute inset-0 border-[6px] border-blue-500/25 pointer-events-none rounded-2xl" />
+              </div>
+            )}
+
+            <div className="w-full grid grid-cols-2 gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => {
+                  stopWaterCamera();
+                  setIsWaterCameraOpen(false);
+                }}
+                className="bg-white/5 hover:bg-white/10 border border-white/10 text-slate-350 rounded-xl py-3 text-xs font-medium active:scale-95 transition-all cursor-pointer text-center font-sans"
+              >
+                Quay lại
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (waterVideoRef.current && waterCanvasRef.current) {
+                    const video = waterVideoRef.current;
+                    const canvas = waterCanvasRef.current;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                      canvas.width = video.videoWidth || 400;
+                      canvas.height = video.videoHeight || 400;
+                      ctx.translate(canvas.width, 0);
+                      ctx.scale(-1, 1);
+                      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                      ctx.setTransform(1, 0, 0, 1, 0, 0);
+                      
+                      const dataUrl = canvas.toDataURL('image/jpeg');
+                      stopWaterCamera();
+                      setIsWaterCameraOpen(false);
+                      
+                      await uploadWaterVerificationPhoto(dataUrl, pendingWaterDrink.amount);
+                      handleDrink(pendingWaterDrink.amount);
+                      setPendingWaterDrink(null);
+                    }
+                  }
+                }}
+                disabled={waterCameraError || !waterCameraStream}
+                className="bg-blue-650 hover:bg-blue-550 disabled:opacity-40 disabled:hover:bg-blue-650 text-white rounded-xl py-3 text-xs font-semibold active:scale-95 transition-all cursor-pointer text-center font-sans"
+              >
+                Chụp ảnh 📸
+              </button>
+            </div>
+          </div>
+          <canvas ref={waterCanvasRef} className="hidden" />
+        </div>
+      )}
     </div>
   );
 }

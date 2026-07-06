@@ -12,6 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: npm ci && npm run build
+        env:
+          VITE_FIREBASE_API_KEY: "AIzaSyAPBt0zSrbSILj00pkgXBOhT7W5r8dCOyc"
+          VITE_FIREBASE_AUTH_DOMAIN: "dou-coupl.firebaseapp.com"
+          VITE_FIREBASE_PROJECT_ID: "dou-coupl"
+          VITE_FIREBASE_STORAGE_BUCKET: "dou-coupl.firebasestorage.app"
+          VITE_FIREBASE_MESSAGING_SENDER_ID: "92616651616"
+          VITE_FIREBASE_APP_ID: "1:92616651616:web:644caeb220c216883ba405"
+          VITE_FIREBASE_MEASUREMENT_ID: "G-BEG05YSEZ3"
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

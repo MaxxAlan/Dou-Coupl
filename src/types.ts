@@ -61,6 +61,13 @@ export interface SpecialAnniversary {
   timestamp: number;
 }
 
+export interface WaterLog {
+  id: string;
+  partnerId: 'A' | 'B';
+  amount: number; // in ml
+  timestamp: number;
+}
+
 export interface CoupleAppState {
   coupleId: string;
   partnerA: Partner;
@@ -70,5 +77,6 @@ export interface CoupleAppState {
   photos: EncryptedPhoto[];
   reminders: Reminder[];
   specialAnniversaries?: SpecialAnniversary[];
+  waterLogs?: WaterLog[];
   isE2EActive: boolean;
 }

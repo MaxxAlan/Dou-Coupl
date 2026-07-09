@@ -484,8 +484,8 @@ export default function AlbumTab({
       }
       setPhotosThumbnails(thumbMap);
     } catch (err: any) {
-      // Graceful fallback for non-whitelisted or un-enabled test credentials on standard Photos API
-      console.warn('Photos API unavailable. Active fallback presets activated.');
+      console.warn('Photos API unavailable:', err?.message);
+      setGoogleError(err?.message || 'Không thể tải Google Photos');
       setPhotosItems([]);
     } finally {
       setIsLoadingGoogle(false);
@@ -1398,6 +1398,12 @@ export default function AlbumTab({
                               <span>Đã kết nối tài khoản Google Photos an toàn! Nếu tài khoản chưa kích hoạt Photos API, bạn có thể tải các bức ảnh kỉ niệm được đề xuất bên dưới.</span>
                             </div>
 
+                            {googleError && (
+                              <div className="bg-amber-500/5 border border-amber-500/20 p-2.5 rounded-xl text-[9px] text-amber-400 leading-relaxed">
+                                <AlertTriangle className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />
+                                <span>{googleError}</span>
+                              </div>
+                            )}
                             {isLoadingGoogle ? (
                               <div className="py-12 flex flex-col items-center justify-center space-y-2">
                                 <RefreshCw className="w-5 h-5 text-[#c5a059] animate-spin" />

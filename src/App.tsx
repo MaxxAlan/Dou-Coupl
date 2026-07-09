@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Heart, 
@@ -26,7 +26,9 @@ import {
   createUserWithEmailAndPassword, 
   signOut,
   signInWithPopup,
-  GoogleAuthProvider
+  GoogleAuthProvider,
+  sendEmailVerification,
+  reload
 } from 'firebase/auth';
 import { 
   doc, 
@@ -82,6 +84,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const isSigningUp = useRef(false);
 
   // Authentication View State
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -281,8 +284,12 @@ export default function App() {
         partnerA: state.partnerA || prev.partnerA,
         partnerB: state.partnerB || prev.partnerB
       }));
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to load database state:', e);
+      if (e.message && e.message.includes('Invalid pairing code')) {
+        console.warn('[E2EE] Invalid pairing code error on load. Attempting to align pairing code...');
+        alignServerPairingCode(coupleData.pairingCode);
+      }
     }
   };
 
@@ -312,30 +319,67 @@ export default function App() {
       setAuthLoading(false);
       return;
     }
+    let unsubProfile: (() => void) | null = null;
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      // Clean up previous profile listener if any
+      if (unsubProfile) {
+        unsubProfile();
+        unsubProfile = null;
+      }
+
       if (user) {
-        setCurrentUser(user);
+        if (isSigningUp.current) {
+          return;
+        }
+
+        try {
+          await reload(user);
+        } catch (reloadErr) {
+          console.error('[Auth] Failed to reload user profile:', reloadErr);
+        }
+
+        const freshUser = auth.currentUser;
+        if (!freshUser) {
+          setCurrentUser(null);
+          setCoupleId(null);
+          setCoupleData(null);
+          setAuthLoading(false);
+          return;
+        }
+
+        if (!freshUser.emailVerified) {
+          setCurrentUser(null);
+          setCoupleId(null);
+          setCoupleData(null);
+          setAuthLoading(false);
+          await signOut(auth);
+          setAuthError('Email của bạn chưa được xác thực. Vui lòng xác thực qua liên kết đã được gửi tới email của bạn.');
+          return;
+        }
+
+        setCurrentUser(freshUser);
         
         // Listen to User Profile Document in Firestore
-        const userDocRef = doc(db, 'users', user.uid);
-        const unsubProfile = onSnapshot(userDocRef, async (profileSnap) => {
+        const userDocRef = doc(db, 'users', freshUser.uid);
+        unsubProfile = onSnapshot(userDocRef, async (profileSnap) => {
           if (profileSnap.exists()) {
             const data = profileSnap.data();
             setUserProfile(data);
             setCoupleId(data.coupleId || null);
             setAuthLoading(false);
           } else {
-            // Document missing, seed profile with connection code
+            // Document missing, seed profile with connection code (only when verified)
             const customCode = generatePairingCode();
             await setDoc(userDocRef, {
-              nickname: user.displayName || '',
-              avatar: user.photoURL || PRESET_AVATARS[0],
+              nickname: freshUser.displayName || '',
+              avatar: freshUser.photoURL || PRESET_AVATARS[0],
               pairingCode: customCode,
               coupleId: null
             });
             setUserProfile({
-              nickname: user.displayName || '',
-              avatar: user.photoURL || PRESET_AVATARS[0],
+              nickname: freshUser.displayName || '',
+              avatar: freshUser.photoURL || PRESET_AVATARS[0],
               pairingCode: customCode,
               coupleId: null
             });
@@ -343,16 +387,21 @@ export default function App() {
             setAuthLoading(false);
           }
         });
-        return () => unsubProfile();
       } else {
         setCurrentUser(null);
+        setUserProfile(null);
         setCoupleId(null);
         setCoupleData(null);
         setAuthLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubProfile) {
+        unsubProfile();
+      }
+    };
   }, []);
 
   // 2. Listen to Firestore Couple document
@@ -550,6 +599,7 @@ export default function App() {
       eventSource.onerror = (err) => {
         console.warn('[SSE] Event stream error. Closing client and retrying connection...', err);
         eventSource?.close();
+        loadDatabase();
         setTimeout(connectSSE, 3000);
       };
     };
@@ -596,11 +646,18 @@ export default function App() {
     e.preventDefault();
     setAuthError(null);
     setAuthSubmitting(true);
+    isSigningUp.current = true;
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      await sendEmailVerification(user);
+      setAuthError('Đăng ký thành công! Một thư xác thực đã được gửi tới email của bạn. Vui lòng xác thực email rồi đăng nhập.');
+      setAuthMode('login');
+      await signOut(auth);
     } catch (err: any) {
       setAuthError(err.message || 'Lỗi đăng ký tài khoản.');
     } finally {
+      isSigningUp.current = false;
       setAuthSubmitting(false);
     }
   };
@@ -983,6 +1040,7 @@ export default function App() {
         <div className="h-full overflow-hidden relative">
           {activeTab === 'anniversary' && (
             <AnniversaryTab
+              pairingCode={coupleData?.pairingCode || ''}
               anniversaryDate={coupleData?.anniversaryDate || '2025-10-15'}
               partnerA={coupleData?.partnerA}
               partnerB={coupleData?.partnerB}
@@ -1524,6 +1582,7 @@ export default function App() {
         <div className="flex-grow overflow-hidden relative">
           {activeTab === 'anniversary' && (
             <AnniversaryTab
+              pairingCode={coupleData?.pairingCode || ''}
               anniversaryDate={coupleData?.anniversaryDate || '2025-10-15'}
               partnerA={coupleData?.partnerA}
               partnerB={coupleData?.partnerB}

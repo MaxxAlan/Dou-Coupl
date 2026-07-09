@@ -164,16 +164,32 @@ for (const origin of DEFAULT_ALLOWED_ORIGINS) {
     allowedOrigins.push(origin);
   }
 }
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      logger.warn({ origin }, 'CORS rejected origin');
-      callback(new Error('Not allowed by CORS'));
+app.use(cors((req, callback) => {
+  const origin = req.header('Origin');
+  let allowed = false;
+
+  if (!origin) {
+    allowed = true;
+  } else if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    allowed = true;
+  } else {
+    try {
+      const originUrl = new URL(origin);
+      const host = req.headers.host;
+      if (host && (originUrl.host === host || originUrl.hostname === host)) {
+        allowed = true;
+      }
+    } catch (e) {
+      // ignore
     }
-  },
-  credentials: true
+  }
+
+  if (allowed) {
+    callback(null, { origin: true, credentials: true });
+  } else {
+    logger.warn({ origin }, 'CORS rejected origin');
+    callback(new Error('Not allowed by CORS'));
+  }
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -970,7 +986,7 @@ app.post('/api/ai-ideas', authMiddleware, aiIdeasLimiter, async (req, res, next)
 
     logger.info('Calling Gemini API for dating suggestions');
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
         systemInstruction: 'Bạn là một cố vấn tình yêu lãng mạn tâm lý, tinh tế và một chuyên gia lên kế hoạch hẹn hò sáng tạo.',

@@ -228,12 +228,19 @@ export const listGooglePhotos = async (partnerId: 'A' | 'B'): Promise<GooglePhot
 
   if (!response.ok) {
     const errData = await response.json().catch(() => ({}));
-    console.warn('Google Photos API returned error (Might be restricted/not enabled):', errData);
+    const errMsg = errData?.error?.message || '';
+    const status = response.status;
+    console.warn('Google Photos API returned error:', { status, errMsg });
     
-    // We must handle restricted/not enabled Photos API gracefully.
-    // If the API fails with permission or 403, we throw a specific error so the UI can fallback
-    // to explaining the status, but also we can fetch images from Google Drive's Pictures folder as fallback!
-    throw new Error(errData?.error?.message || 'Google Photos API returned an error.');
+    let userMessage: string;
+    if (status === 403 && errMsg.includes('not been enabled')) {
+      userMessage = 'Google Photos API chưa được kích hoạt. Vào https://console.cloud.google.com/apis/library/photoslibrary.googleapis.com để bật API, hoặc dùng ảnh mẫu bên dưới.';
+    } else if (status === 401 || status === 403) {
+      userMessage = 'Tài khoản chưa được cấp quyền truy cập Google Photos. Vào https://console.cloud.google.com/apis/credentials → OAuth consent screen → thêm email test, hoặc dùng ảnh mẫu.';
+    } else {
+      userMessage = errMsg || 'Không thể kết nối Google Photos. Dùng ảnh mẫu bên dưới.';
+    }
+    throw new Error(userMessage);
   }
 
   const data = await response.json();

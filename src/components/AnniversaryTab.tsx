@@ -32,6 +32,7 @@ import { apiClient } from '../lib/apiClient';
 import { downloadGoogleDriveFile, uploadFileToGoogleDrive } from '../lib/googleApi';
 
 interface AnniversaryTabProps {
+  pairingCode: string;
   anniversaryDate: string;
   partnerA: Partner;
   partnerB: Partner;
@@ -48,6 +49,7 @@ interface AnniversaryTabProps {
 }
 
 export default function AnniversaryTab({
+  pairingCode,
   anniversaryDate,
   partnerA,
   partnerB,
@@ -348,6 +350,8 @@ export default function AnniversaryTab({
       const res = await apiClient.post('/api/ai-ideas', {
         daysTogether,
         anniversaryDate
+      }, {
+        'X-Pairing-Code': pairingCode
       });
       if (res.ideas && Array.isArray(res.ideas)) {
         setAiIdeas(res.ideas);

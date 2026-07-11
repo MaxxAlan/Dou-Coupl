@@ -949,10 +949,36 @@ export default function App() {
   // Secure async verify callback for PasscodeLock
   const handleVerifyPasscode = async (pin: string): Promise<boolean> => {
     try {
-      const res = await apiClient.verifyPasscode(pin, activePartner);
-      return !!res.valid;
-    } catch (e) {
+      const emailVal = currentUser?.email || '';
+      const res = await apiClient.verifyPasscode(pin, activePartner, emailVal);
+      if (res.valid) {
+        return true;
+      } else {
+        if (res.locked) {
+          triggerNotification(
+            'Khóa ứng dụng',
+            res.message || 'Bạn đã nhập sai mã PIN quá 3 lần. Một mã PIN mới đã được gửi tới email của bạn.',
+            'error'
+          );
+        } else if (res.attemptsRemaining !== undefined) {
+          triggerNotification(
+            'Sai mã PIN',
+            res.message || `Mã PIN không đúng. Bạn còn ${res.attemptsRemaining} lần thử.`,
+            'error'
+          );
+        } else {
+          triggerNotification('Sai mã PIN', 'Mã PIN nhập vào không chính xác.', 'error');
+        }
+        return false;
+      }
+    } catch (e: any) {
       console.error('Passcode verification error:', e);
+      const errMsg = e.message || '';
+      if (errMsg.includes('gửi tới email')) {
+        triggerNotification('Khóa ứng dụng', errMsg, 'error');
+      } else {
+        triggerNotification('Lỗi kết nối', 'Không thể xác thực mã PIN với máy chủ.', 'error');
+      }
       return false;
     }
   };

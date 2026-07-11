@@ -83,7 +83,8 @@ const passcodeSchema = z.object({
 
 const passcodeVerifySchema = z.object({
   passcode: z.string().min(1).max(100),
-  partnerId: z.enum(['A', 'B'])
+  partnerId: z.enum(['A', 'B']),
+  email: z.string().email().optional().nullable()
 });
 
 const specialAnniversarySchema = z.object({
@@ -666,17 +667,78 @@ app.post('/api/passcode/verify', authMiddleware, strictLimiter, async (req, res,
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
     }
-    const { passcode, partnerId } = parsed.data;
+    const { passcode, partnerId, email } = parsed.data;
 
     const state = await readDatabase();
     const hashKey = partnerId === 'A' ? 'passcodeHashA' : 'passcodeHashB';
+    const attemptsKey = partnerId === 'A' ? 'failedAttemptsA' : 'failedAttemptsB';
+
     if (!state[hashKey]) {
       return res.json({ valid: true }); // No PIN set for this partner
     }
 
     const isValid = bcrypt.compareSync(passcode, state[hashKey]);
-    // Rate limit response to prevent brute force
-    res.json({ valid: isValid });
+
+    if (isValid) {
+      // Reset failed attempts on successful verification
+      await updateDatabase(db => {
+        db[attemptsKey] = 0;
+      });
+      return res.json({ valid: true });
+    } else {
+      let currentAttempts = 0;
+      let isLocked = false;
+      let newPasscode = '';
+      let targetEmail = email || '';
+
+      // Find partner email from database if not passed in request
+      if (!targetEmail) {
+        if (partnerId === 'A' && state.partnerA?.email) {
+          targetEmail = state.partnerA.email;
+        } else if (partnerId === 'B' && state.partnerB?.email) {
+          targetEmail = state.partnerB.email;
+        }
+      }
+
+      await updateDatabase(db => {
+        if (db[attemptsKey] === undefined) {
+          db[attemptsKey] = 0;
+        }
+        db[attemptsKey] += 1;
+        currentAttempts = db[attemptsKey];
+
+        if (currentAttempts >= 3) {
+          isLocked = true;
+          // Generate a new random 4-digit PIN passcode
+          newPasscode = Math.floor(1000 + Math.random() * 9000).toString();
+          const salt = bcrypt.genSaltSync(10);
+          db[hashKey] = bcrypt.hashSync(newPasscode, salt);
+          db[attemptsKey] = 0; // Reset count
+        }
+      });
+
+      if (isLocked) {
+        // Send verification email log (security logging)
+        const recipient = targetEmail || 'partner@example.com';
+        const logMsg = `[${new Date().toISOString()}] Sending verification email to ${recipient}: Mật mã PIN mới của bạn là: ${newPasscode}\n`;
+        await fs.appendFile(path.join(process.cwd(), 'email_logs.txt'), logMsg, 'utf-8');
+        logger.warn({ recipient }, 'Passcode locked! New passcode sent via email log');
+
+        return res.json({
+          valid: false,
+          locked: true,
+          attemptsRemaining: 0,
+          message: `Bạn đã nhập sai mã PIN 3 lần. Một mã PIN mới đã được gửi tới email ${recipient}.`
+        });
+      } else {
+        return res.json({
+          valid: false,
+          locked: false,
+          attemptsRemaining: 3 - currentAttempts,
+          message: `Mã PIN không đúng. Bạn còn ${3 - currentAttempts} lần thử.`
+        });
+      }
+    }
   } catch (error) {
     next(error);
   }

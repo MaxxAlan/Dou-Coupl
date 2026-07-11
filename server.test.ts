@@ -191,13 +191,38 @@ describe('Express Server API Integration Tests', () => {
     expect(verifyCorrect.status).toBe(200);
     expect(verifyCorrect.body.valid).toBe(true);
 
-    // 4. Verify incorrect PIN (now with auth)
-    const verifyIncorrect = await request(app)
+    // 4. Verify incorrect PIN and check failed attempts / lock out behavior
+    const fail1 = await request(app)
       .post('/api/passcode/verify')
       .set('X-Pairing-Code', pairingCode)
-      .send({ passcode: '5555', partnerId: 'A' });
-    expect(verifyIncorrect.status).toBe(200);
-    expect(verifyIncorrect.body.valid).toBe(false);
+      .send({ passcode: '5555', partnerId: 'A', email: 'test@example.com' });
+    expect(fail1.status).toBe(200);
+    expect(fail1.body.valid).toBe(false);
+    expect(fail1.body.attemptsRemaining).toBe(2);
+
+    const fail2 = await request(app)
+      .post('/api/passcode/verify')
+      .set('X-Pairing-Code', pairingCode)
+      .send({ passcode: '5555', partnerId: 'A', email: 'test@example.com' });
+    expect(fail2.status).toBe(200);
+    expect(fail2.body.valid).toBe(false);
+    expect(fail2.body.attemptsRemaining).toBe(1);
+
+    const fail3 = await request(app)
+      .post('/api/passcode/verify')
+      .set('X-Pairing-Code', pairingCode)
+      .send({ passcode: '5555', partnerId: 'A', email: 'test@example.com' });
+    expect(fail3.status).toBe(200);
+    expect(fail3.body.valid).toBe(false);
+    expect(fail3.body.locked).toBe(true);
+    expect(fail3.body.message).toContain('gửi tới email');
+
+    // 4.1. Verify that old passcode '1234' is now invalid (it was reset)
+    const oldPinVerify = await request(app)
+      .post('/api/passcode/verify')
+      .set('X-Pairing-Code', pairingCode)
+      .send({ passcode: '1234', partnerId: 'A' });
+    expect(oldPinVerify.body.valid).toBe(false);
 
     // 5. Clear PIN
     const clearRes = await request(app)

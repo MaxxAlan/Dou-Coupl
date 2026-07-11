@@ -142,10 +142,10 @@ export const apiClient = {
   },
 
   // 10. Verify PIN passcode endpoint (per-partner)
-  verifyPasscode: async (passcode: string, partnerId: 'A' | 'B') => {
+  verifyPasscode: async (passcode: string, partnerId: 'A' | 'B', email?: string) => {
     return request('/api/passcode/verify', {
       method: 'POST',
-      body: JSON.stringify({ passcode, partnerId }),
+      body: JSON.stringify({ passcode, partnerId, email }),
       partnerId
     });
   },

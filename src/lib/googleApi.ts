@@ -1,6 +1,6 @@
-import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from './firebase';
-
+import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User, getAuth } from 'firebase/auth';
+import { initializeApp, getApps } from 'firebase/app';
+import { auth, firebaseConfig } from './firebase';
 
 // Configure Google Auth Provider
 export const googleProvider = new GoogleAuthProvider();
@@ -16,6 +16,24 @@ const scopes = [
 
 scopes.forEach(scope => googleProvider.addScope(scope));
 
+// Initialize secondary Firebase Auth instance for isolated Google Drive authentication
+let tempGoogleApp: any = null;
+let tempGoogleAuth: any = null;
+
+const getTempGoogleAuth = () => {
+  if (tempGoogleAuth) return tempGoogleAuth;
+
+  const apps = getApps();
+  const existingTempApp = apps.find(app => app.name === 'tempGoogleDriveApp');
+  if (existingTempApp) {
+    tempGoogleApp = existingTempApp;
+  } else {
+    tempGoogleApp = initializeApp(firebaseConfig, 'tempGoogleDriveApp');
+  }
+  tempGoogleAuth = getAuth(tempGoogleApp);
+  return tempGoogleAuth;
+};
+
 // Keep track of auth state and token
 let isSigningIn = false;
 let cachedAccessTokens: Record<'A' | 'B', string | null> = {
@@ -29,20 +47,19 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
-    if (user) {
-      const key = `google_access_token_${partnerId}`;
-      const token = localStorage.getItem(key) || cachedAccessTokens[partnerId];
-      if (token) {
-        cachedAccessTokens[partnerId] = token;
-        if (onAuthSuccess) onAuthSuccess(user, token);
-      } else if (!isSigningIn) {
+  const tempAuth = getTempGoogleAuth();
+  return onAuthStateChanged(tempAuth, async (googleUser: User | null) => {
+    const key = `google_access_token_${partnerId}`;
+    const token = localStorage.getItem(key) || cachedAccessTokens[partnerId];
+    if (googleUser && token) {
+      cachedAccessTokens[partnerId] = token;
+      if (onAuthSuccess) onAuthSuccess(googleUser, token);
+    } else {
+      if (!isSigningIn) {
+        cachedAccessTokens[partnerId] = null;
+        localStorage.removeItem(`google_access_token_${partnerId}`);
         if (onAuthFailure) onAuthFailure();
       }
-    } else {
-      cachedAccessTokens[partnerId] = null;
-      localStorage.removeItem(`google_access_token_${partnerId}`);
-      if (onAuthFailure) onAuthFailure();
     }
   });
 };
@@ -50,7 +67,8 @@ export const initAuth = (
 export const googleSignIn = async (partnerId: 'A' | 'B'): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, googleProvider);
+    const tempAuth = getTempGoogleAuth();
+    const result = await signInWithPopup(tempAuth, googleProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Không thể lấy Access Token từ Google Auth');
@@ -73,7 +91,8 @@ export const getAccessToken = (partnerId: 'A' | 'B'): string | null => {
 };
 
 export const logoutGoogle = async (partnerId: 'A' | 'B') => {
-  await auth.signOut();
+  const tempAuth = getTempGoogleAuth();
+  await tempAuth.signOut();
   cachedAccessTokens[partnerId] = null;
   localStorage.removeItem(`google_access_token_${partnerId}`);
 };

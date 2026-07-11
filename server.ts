@@ -462,9 +462,15 @@ app.post('/api/messages', authMiddleware, async (req, res, next) => {
       duration
     };
 
-    await updateDatabase(db => {
-      db.messages.push(newMessage);
-    });
+    const state = await readDatabase();
+    const isP2P = state.storageMethodA === 'p2p' || state.storageMethodB === 'p2p';
+    if (!isP2P) {
+      await updateDatabase(db => {
+        db.messages.push(newMessage);
+      });
+    } else {
+      logger.info('[P2P Mode] Message broadcasted but NOT stored on server.');
+    }
 
     broadcastEvent('NEW_MESSAGE', newMessage);
     res.json({ success: true, message: newMessage });
@@ -498,9 +504,15 @@ app.post('/api/photos', authMiddleware, async (req, res, next) => {
       timestamp: Date.now()
     };
 
-    await updateDatabase(db => {
-      db.photos.push(newPhoto);
-    });
+    const state = await readDatabase();
+    const isP2P = state.storageMethodA === 'p2p' || state.storageMethodB === 'p2p';
+    if (!isP2P) {
+      await updateDatabase(db => {
+        db.photos.push(newPhoto);
+      });
+    } else {
+      logger.info('[P2P Mode] Photo metadata broadcasted but NOT stored on server.');
+    }
 
     broadcastEvent('NEW_PHOTO', newPhoto);
     res.json({ success: true, photo: newPhoto });
@@ -558,9 +570,15 @@ app.post('/api/reminders', authMiddleware, async (req, res, next) => {
       timestamp: Date.now()
     };
 
-    await updateDatabase(db => {
-      db.reminders.push(newReminder);
-    });
+    const state = await readDatabase();
+    const isP2P = state.storageMethodA === 'p2p' || state.storageMethodB === 'p2p';
+    if (!isP2P) {
+      await updateDatabase(db => {
+        db.reminders.push(newReminder);
+      });
+    } else {
+      logger.info('[P2P Mode] Reminder checklist item broadcasted but NOT stored on server.');
+    }
 
     broadcastEvent('NEW_REMINDER', newReminder);
     res.json({ success: true, reminder: newReminder });

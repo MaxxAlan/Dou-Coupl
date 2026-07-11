@@ -18,6 +18,8 @@ describe('Express Server API Integration Tests', () => {
       db.pairingCode = pairingCode;
       db.passcodeHash = ''; // Start clean
       db.reminders = []; // Reset reminders for clean concurrency test
+      db.storageMethodA = 'googledrive';
+      db.storageMethodB = 'googledrive';
       await fs.writeFile(DB_FILE, JSON.stringify(db, null, 2));
     } catch (e) {
       // ignore

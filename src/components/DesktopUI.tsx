@@ -5,7 +5,8 @@ import {
   Search, Command, ArrowRight, LogOut, Lock, BellRing,
   User, Camera, Mic, Phone, Video, Sparkles, X, Loader2,
   ChevronLeft, ChevronRight, Monitor, Keyboard, Sunset,
-  FileText, Gift, Calendar, Clock, Terminal, Wifi
+  FileText, Gift, Calendar, Clock, Terminal, Wifi,
+  Volume2, VolumeX
 } from 'lucide-react';
 
 const TABS = [
@@ -28,6 +29,8 @@ interface DesktopUIProps {
   children: React.ReactNode;
   onStartCall?: (type: 'voice' | 'video') => void;
   onSendQuickPhoto?: () => void;
+  musicPlaying?: boolean;
+  onToggleMusic?: () => void;
 }
 
 export default function DesktopUI({
@@ -42,6 +45,8 @@ export default function DesktopUI({
   children,
   onStartCall,
   onSendQuickPhoto,
+  musicPlaying,
+  onToggleMusic,
 }: DesktopUIProps) {
   const [commandOpen, setCommandOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -178,6 +183,19 @@ export default function DesktopUI({
               <span className="text-[10px] font-medium text-slate-300 hidden sm:inline">{currentPartner.name}</span>
               <div className={`w-1.5 h-1.5 rounded-full ${activePartner === 'A' ? 'bg-emerald-400' : 'bg-emerald-400'}`} />
             </div>
+          )}
+
+          {/* Music Toggle */}
+          {onToggleMusic && (
+            <button
+              onClick={onToggleMusic}
+              className={`p-1.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 transition-all cursor-pointer ${
+                musicPlaying ? 'text-[#c5a059]' : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title={musicPlaying ? 'Tắt nhạc nền' : 'Bật nhạc nền'}
+            >
+              {musicPlaying ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+            </button>
           )}
 
           {/* Lock */}

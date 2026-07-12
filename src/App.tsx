@@ -17,7 +17,9 @@ import {
   Check, 
   Users, 
   AlertCircle,
-  Loader2
+  Loader2,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 
 import { 
@@ -1092,6 +1094,8 @@ export default function App() {
         onSendQuickPhoto={() => {
           setActiveTab('album');
         }}
+        musicPlaying={themeMusic.playing}
+        onToggleMusic={themeMusic.toggle}
       >
         <div className="h-full overflow-hidden relative">
           {activeTab === 'anniversary' && (
@@ -1143,6 +1147,9 @@ export default function App() {
               onDeletePhoto={handleDeletePhoto}
               storageMethodA={coupleData?.storageMethodA}
               storageMethodB={coupleData?.storageMethodB}
+              waterLogs={waterLogs}
+              onAddWaterLog={handleAddWaterLog}
+              onDeleteWaterLog={handleDeleteWaterLog}
             />
           )}
           {activeTab === 'reminders' && (
@@ -1853,6 +1860,15 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={themeMusic.toggle}
+              className={`p-1.5 rounded-xl bg-white/[0.03] border border-white/10 transition-colors cursor-pointer ${
+                themeMusic.playing ? 'text-[#c5a059]' : 'text-white/40 hover:text-white/70'
+              }`}
+              title={themeMusic.playing ? 'Tắt nhạc nền' : 'Bật nhạc nền'}
+            >
+              {themeMusic.playing ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+            </button>
             {activePasscodeNeeded && (
               <button
                 onClick={() => {

@@ -403,7 +403,8 @@ export default function SecurityHub({
 
   return (
     <div className="h-full bg-[#080808] font-sans text-slate-100 flex flex-col overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-5 space-y-6 pb-24 scrollbar-thin scrollbar-thumb-white/5">
+      <div className="flex-1 overflow-y-auto p-5 pb-24 scrollbar-thin scrollbar-thumb-white/5">
+        <div className="max-w-3xl mx-auto w-full space-y-6">
         
         {/* Core Cryptography status card */}
         <div className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl flex items-center justify-between shadow-sm">
@@ -1206,6 +1207,7 @@ export default function SecurityHub({
               <span className="text-[#c5a059] font-semibold">MaxxAlan</span>
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>

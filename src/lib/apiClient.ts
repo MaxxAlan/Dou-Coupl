@@ -132,11 +132,11 @@ export const apiClient = {
   },
 
   // 9. Set PIN passcode lock hash (per-partner)
-  setPasscode: async (pairingCode: string, passcode: string, partnerId: 'A' | 'B') => {
+  setPasscode: async (pairingCode: string, passcode: string, partnerId: 'A' | 'B', email?: string) => {
     return request('/api/passcode', {
       method: 'POST',
       headers: { 'X-Pairing-Code': pairingCode },
-      body: JSON.stringify({ passcode, partnerId }),
+      body: JSON.stringify({ passcode, partnerId, email }),
       partnerId
     });
   },
@@ -229,6 +229,14 @@ export const apiClient = {
     return request(`/api/water/${id}`, {
       method: 'DELETE',
       headers: { 'X-Pairing-Code': pairingCode }
+    });
+  },
+
+  // 16c. Log password reset request on 3 failed login attempts
+  logPasswordReset: async (email: string) => {
+    return request('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ email })
     });
   },
 

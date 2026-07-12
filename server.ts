@@ -78,7 +78,8 @@ const anniversarySchema = z.object({
 
 const passcodeSchema = z.object({
   passcode: z.string().max(100), // Will be hashed on server. Send empty string to clear.
-  partnerId: z.enum(['A', 'B'])
+  partnerId: z.enum(['A', 'B']),
+  email: z.string().email().optional().nullable()
 });
 
 const passcodeVerifySchema = z.object({
@@ -428,6 +429,30 @@ app.get('/api/events', async (req, res, next) => {
   }
 });
 
+const resetPasswordSchema = z.object({
+  email: z.string().email()
+});
+
+app.post('/api/auth/reset-password', strictLimiter, async (req, res, next) => {
+  try {
+    const parsed = resetPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
+    }
+    const { email } = parsed.data;
+
+    const logMsg = `[${new Date().toISOString()}] Yêu cầu đặt lại mật khẩu đăng nhập cho ${email} (Lý do: nhập sai mật khẩu 3 lần khi đăng nhập).\n`;
+    const logsDir = path.join(process.cwd(), 'logs');
+    await fs.mkdir(logsDir, { recursive: true });
+    await fs.appendFile(path.join(logsDir, 'email_logs.txt'), logMsg, 'utf-8');
+    logger.warn({ email }, 'Password reset requested via email log');
+
+    res.json({ success: true, message: 'Yêu cầu khôi phục mật khẩu đã được ghi nhận.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Fetch complete app state (Requires auth, hides key & hash)
 app.get('/api/state', authMiddleware, async (req, res, next) => {
   try {
@@ -647,6 +672,12 @@ app.post('/api/anniversary', authMiddleware, async (req, res, next) => {
   }
 });
 
+function getSaltedPasscode(passcode: string, email: string | null | undefined): string {
+  if (!email) return passcode;
+  const emailVal = email.toLowerCase().split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return `${passcode}_${emailVal}`;
+}
+
 // Set PIN passcode lock hash (BCrypt hashed on server - SEC-2, per-partner)
 app.post('/api/passcode', authMiddleware, strictLimiter, async (req, res, next) => {
   try {
@@ -654,15 +685,24 @@ app.post('/api/passcode', authMiddleware, strictLimiter, async (req, res, next) 
     if (!parsed.success) {
       return res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
     }
-    const { passcode, partnerId } = parsed.data;
+    const { passcode, partnerId, email } = parsed.data;
 
     const hashKey = partnerId === 'A' ? 'passcodeHashA' : 'passcodeHashB';
     let hasPasscodeA: boolean | undefined;
     let hasPasscodeB: boolean | undefined;
     await updateDatabase(db => {
+      if (email) {
+        if (partnerId === 'A') {
+          db.partnerA = { ...db.partnerA, email };
+        } else if (partnerId === 'B') {
+          db.partnerB = { ...db.partnerB, email };
+        }
+      }
+
       if (passcode) {
+        const salted = getSaltedPasscode(passcode, email);
         const salt = bcrypt.genSaltSync(10);
-        db[hashKey] = bcrypt.hashSync(passcode, salt);
+        db[hashKey] = bcrypt.hashSync(salted, salt);
       } else {
         db[hashKey] = '';
       }
@@ -695,7 +735,17 @@ app.post('/api/passcode/verify', authMiddleware, strictLimiter, async (req, res,
       return res.json({ valid: true }); // No PIN set for this partner
     }
 
-    const isValid = bcrypt.compareSync(passcode, state[hashKey]);
+    let targetEmail = email || '';
+    if (!targetEmail) {
+      if (partnerId === 'A' && state.partnerA?.email) {
+        targetEmail = state.partnerA.email;
+      } else if (partnerId === 'B' && state.partnerB?.email) {
+        targetEmail = state.partnerB.email;
+      }
+    }
+
+    const salted = getSaltedPasscode(passcode, targetEmail);
+    const isValid = bcrypt.compareSync(salted, state[hashKey]);
 
     if (isValid) {
       // Reset failed attempts on successful verification
@@ -707,16 +757,6 @@ app.post('/api/passcode/verify', authMiddleware, strictLimiter, async (req, res,
       let currentAttempts = 0;
       let isLocked = false;
       let newPasscode = '';
-      let targetEmail = email || '';
-
-      // Find partner email from database if not passed in request
-      if (!targetEmail) {
-        if (partnerId === 'A' && state.partnerA?.email) {
-          targetEmail = state.partnerA.email;
-        } else if (partnerId === 'B' && state.partnerB?.email) {
-          targetEmail = state.partnerB.email;
-        }
-      }
 
       await updateDatabase(db => {
         if (db[attemptsKey] === undefined) {
@@ -729,8 +769,10 @@ app.post('/api/passcode/verify', authMiddleware, strictLimiter, async (req, res,
           isLocked = true;
           // Generate a new random 4-digit PIN passcode
           newPasscode = Math.floor(1000 + Math.random() * 9000).toString();
+          
+          const newSalted = getSaltedPasscode(newPasscode, targetEmail);
           const salt = bcrypt.genSaltSync(10);
-          db[hashKey] = bcrypt.hashSync(newPasscode, salt);
+          db[hashKey] = bcrypt.hashSync(newSalted, salt);
           db[attemptsKey] = 0; // Reset count
         }
       });
@@ -739,7 +781,9 @@ app.post('/api/passcode/verify', authMiddleware, strictLimiter, async (req, res,
         // Send verification email log (security logging)
         const recipient = targetEmail || 'partner@example.com';
         const logMsg = `[${new Date().toISOString()}] Sending verification email to ${recipient}: Mật mã PIN mới của bạn là: ${newPasscode}\n`;
-        await fs.appendFile(path.join(process.cwd(), 'email_logs.txt'), logMsg, 'utf-8');
+        const logsDir = path.join(process.cwd(), 'logs');
+        await fs.mkdir(logsDir, { recursive: true });
+        await fs.appendFile(path.join(logsDir, 'email_logs.txt'), logMsg, 'utf-8');
         logger.warn({ recipient }, 'Passcode locked! New passcode sent via email log');
 
         return res.json({
@@ -1111,6 +1155,9 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
+    app.get('/homepage', (req, res) => {
+      res.sendFile(path.join(distPath, 'homepage.html'));
+    });
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });

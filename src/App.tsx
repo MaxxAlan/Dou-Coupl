@@ -28,7 +28,8 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   sendEmailVerification,
-  reload
+  reload,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
   doc, 
@@ -92,6 +93,8 @@ export default function App() {
   const [password, setPassword] = useState<string>('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSubmitting, setAuthSubmitting] = useState<boolean>(false);
+  const [showLogin, setShowLogin] = useState<boolean>(false);
+  const [failedLoginAttempts, setFailedLoginAttempts] = useState<number>(0);
 
   // Onboarding (Profile setup) State
   const [nickname, setNickname] = useState<string>('');
@@ -635,8 +638,35 @@ export default function App() {
     setAuthSubmitting(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
+      setFailedLoginAttempts(0);
     } catch (err: any) {
-      setAuthError(err.message || 'Lỗi đăng nhập, hãy kiểm tra lại thông tin.');
+      console.error(err);
+      const isWrongPassword = 
+        err.code === 'auth/wrong-password' || 
+        err.code === 'auth/invalid-credential' ||
+        err.message?.toLowerCase().includes('password') || 
+        err.message?.toLowerCase().includes('credential');
+
+      if (isWrongPassword) {
+        const nextAttempts = failedLoginAttempts + 1;
+        setFailedLoginAttempts(nextAttempts);
+
+        if (nextAttempts >= 3) {
+          setFailedLoginAttempts(0);
+          try {
+            await sendPasswordResetEmail(auth, email);
+            await apiClient.logPasswordReset(email);
+            setAuthError('Đã nhập sai mật khẩu 3 lần liên tiếp. Một email khôi phục mật khẩu đã được tự động gửi đến hòm thư đăng ký của bạn.');
+          } catch (resetErr: any) {
+            console.error(resetErr);
+            setAuthError('Đã nhập sai mật khẩu 3 lần. Cố gắng tự động gửi mail khôi phục thất bại: ' + (resetErr.message || ''));
+          }
+        } else {
+          setAuthError(`Mật khẩu không chính xác. Bạn còn ${3 - nextAttempts} lần thử trước khi hệ thống gửi email khôi phục mật khẩu.`);
+        }
+      } else {
+        setAuthError(err.message || 'Lỗi đăng nhập, hãy kiểm tra lại thông tin.');
+      }
     } finally {
       setAuthSubmitting(false);
     }
@@ -1211,6 +1241,223 @@ export default function App() {
   }
 
   if (!currentUser) {
+    if (!showLogin) {
+      // PUBLIC LANDING PAGE (Google Compliance: Home page not behind login)
+      return (
+        <div className="min-h-screen bg-[#080808] font-sans flex flex-col text-slate-200 relative overflow-x-hidden selection:bg-[#c5a059]/30 selection:text-[#ebd4b3]">
+          {/* Background decorations */}
+          <div className="absolute inset-0 opacity-15 pointer-events-none overflow-hidden">
+            <div className="absolute top-[-10%] left-[-15%] w-[60%] h-[60%] rounded-full bg-[#c5a059] blur-[150px]" />
+            <div className="absolute bottom-[-10%] right-[-15%] w-[60%] h-[60%] rounded-full bg-[#201a15] blur-[150px]" />
+          </div>
+
+          {/* Navigation Header */}
+          <header className="w-full max-w-5xl mx-auto px-6 py-6 flex items-center justify-between relative z-10 shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-serif text-[#c5a059] tracking-wider font-bold">Dou-Coupl</span>
+              <span className="text-[9px] font-mono text-slate-500 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full uppercase tracking-wider">Không gian bảo mật</span>
+            </div>
+            
+            <button
+              onClick={() => setShowLogin(true)}
+              className="px-4.5 py-2 bg-[#c5a059] hover:bg-[#b08b47] text-xs font-semibold rounded-2xl transition-all active:scale-95 cursor-pointer text-black"
+            >
+              Bước vào Không gian
+            </button>
+          </header>
+
+          {/* Hero Section */}
+          <main className="flex-1 max-w-4xl mx-auto px-6 py-12 md:py-20 relative z-10 w-full flex flex-col justify-center space-y-16">
+            <div className="text-center space-y-6">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5 }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#c5a059]/10 border border-[#c5a059]/20 text-[10px] md:text-xs text-[#c5a059] font-mono uppercase tracking-wider animate-pulse"
+              >
+                <Heart className="w-3.5 h-3.5 fill-current text-[#c5a059]" />
+                <span>Nơi tình yêu được bảo vệ bởi mật mã thiết bị</span>
+              </motion.div>
+              
+              <h1 className="text-4xl md:text-6xl font-light tracking-tight text-slate-100 font-serif leading-tight">
+                Không gian lưu giữ kỷ niệm <br />
+                <span className="text-[#c5a059] font-normal italic">dành riêng cho hai người</span>
+              </h1>
+              
+              <p className="text-xs md:text-sm text-slate-400 max-w-xl mx-auto leading-relaxed font-light">
+                Từng lời nhắn gửi ngọt ngào, từng bức hình locket thường nhật, từng cột mốc ngày yêu đều được cất giữ cẩn mật. Chúng tôi không lưu trữ trên máy chủ, không trung gian xem trộm dữ liệu của bạn.
+              </p>
+
+              <div className="pt-4 flex flex-col sm:flex-row gap-4 justify-center items-center font-sans">
+                <button
+                  onClick={() => setShowLogin(true)}
+                  className="w-full sm:w-auto px-8 py-4 bg-[#c5a059] hover:bg-[#b08b47] text-black font-semibold text-xs md:text-sm rounded-2xl transition-all shadow-lg hover:shadow-[#c5a059]/10 active:scale-98 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <span>Mở không gian của hai bạn</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+                <a
+                  href="https://github.com/MaxxAlan/Dou-Coupl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full sm:w-auto px-6 py-4 bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 text-slate-300 hover:text-white text-xs font-semibold rounded-2xl transition-all active:scale-98 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <span>Mã nguồn trên GitHub</span>
+                  <ArrowRight className="w-3.5 h-3.5 rotate-[-45deg]" />
+                </a>
+              </div>
+            </div>
+
+            {/* In-depth Philosophy Section */}
+            <div className="space-y-6 border-t border-white/5 pt-12 text-left">
+              <h2 className="text-xl md:text-2xl font-serif text-[#ebd4b3]">Triết lý đằng sau Dou-Coupl</h2>
+              <div className="space-y-4 text-xs md:text-sm text-slate-400 leading-relaxed font-sans font-light">
+                <p>
+                  Trong thời đại kỹ thuật số, hầu hết mọi ứng dụng trò chuyện và mạng xã hội lớn đều hoạt động dựa trên việc thu thập dữ liệu người dùng. Khi hai bạn nhắn tin cho nhau về một kế hoạch đi du lịch, một món quà định tặng, hay một địa điểm ăn uống sắp tới, các thuật toán trí tuệ nhân tạo sẽ quét qua và bắt đầu phân phối quảng cáo hướng đối tượng. Tình yêu – thứ tình cảm thiêng liêng và riêng tư nhất – vô tình trở thành một món hàng dữ liệu được đem đi khai thác thương mại.
+                </p>
+                <p>
+                  Chúng tôi tin rằng có những khoảnh khắc chỉ nên thuộc về hai người. <strong>Dou-Coupl</strong> ra đời với một triết lý hoàn toàn khác biệt: <strong>Tình yêu cần một khu vườn bí mật thực sự.</strong> Không quảng cáo, không phân tích hành vi, không ai nhìn lén. Đây không chỉ là lời cam kết suông trên giấy, mà là cam kết được xây dựng trực tiếp vào kiến trúc lập trình của ứng dụng: dữ liệu thuộc về bạn, mã hóa nằm trên tay bạn, và máy chủ không lưu giữ bất kỳ vết tích nào của hai người.
+                </p>
+              </div>
+            </div>
+
+            {/* Technical Detail: How Encryption works in human words */}
+            <div className="space-y-6 border-t border-white/5 pt-12 text-left">
+              <h2 className="text-xl md:text-2xl font-serif text-[#ebd4b3]">Lớp khiên bảo vệ hoạt động như thế nào?</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 font-sans">
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                    <span className="text-[#c5a059]">🔒</span>
+                    <span>Mã hóa đầu cuối (E2EE)</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed font-light">
+                    Hãy tưởng tượng bạn đặt thư tình của mình vào một chiếc hộp thép siêu cứng và khóa lại ngay tại phòng khách của bạn. Chiếc chìa khóa duy nhất để mở ổ khóa đó nằm trên tay người yêu bạn ở đầu bên kia. Khi lá thư đi qua mạng Internet, nó chỉ là một khối kim loại xám xịt không ai có thể nhìn xuyên qua hay đập vỡ. Khi đến máy người ấy, chìa khóa tương ứng sẽ tự động giải mã. Không một ai khác trên đường truyền, kể cả chúng tôi, sở hữu chìa khóa này.
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                    <span className="text-[#c5a059]">☁️</span>
+                    <span>Sao lưu Google Drive cá nhân</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed font-light">
+                    Đa số ứng dụng lưu trữ dữ liệu của bạn trên kho máy chủ đám mây khổng lồ của họ. Nếu máy chủ đó bị tấn công hoặc rò rỉ, mọi kỷ niệm của bạn sẽ phơi bày trước công chúng. Với Dou-Coupl, dữ liệu nhật ký và ảnh chụp của hai bạn được lưu trực tiếp trên thư mục bảo mật thuộc tài khoản **Google Drive cá nhân** của chính bạn. Bạn hoàn toàn làm chủ dung lượng lưu trữ, có quyền sao chép, tải về hoặc xóa bỏ bất cứ lúc nào mà không phụ thuộc vào bất kỳ bên thứ ba nào.
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                    <span className="text-[#c5a059]">🛠️</span>
+                    <span>Nguyên lý Zero-Storage Server</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed font-light">
+                    Máy chủ trung tâm của chúng tôi hoạt động với nguyên lý "không biết gì và không lưu giữ gì". Nó đóng vai trò như một bảng chỉ dẫn đường truyền hoặc một người đưa thư mù: nhận thư đã được khóa mã hóa từ thiết bị của bạn, định tuyến gửi sang thiết bị đối phương, và xóa bỏ gói tin khỏi bộ nhớ tạm ngay lập tức sau khi giao thành công. Hệ thống hoàn toàn không lưu giữ bất kỳ cơ sở dữ liệu chat hay lịch sử nhật ký nào trên máy chủ.
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                    <span className="text-[#c5a059]">✨</span>
+                    <span>Quyền sở hữu dữ liệu tối cao</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed font-light">
+                    Quyền riêng tư tối cao đi kèm với quyền được biến mất. Trong giao diện cài đặt, bạn luôn có tùy chọn hủy liên kết ghép đôi và xóa sạch mọi cơ sở dữ liệu lưu trữ local trên thiết bị chỉ với một chạm duy nhất. Mọi cuộc trò chuyện, nhật ký, nhắc nhở sẽ biến mất vĩnh viễn không để lại bất kỳ dấu vết nào trên thế giới số. Dữ liệu thực sự nằm dưới quyền kiểm soát tuyệt đối của hai bạn.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Transparency Section */}
+            <div className="space-y-6 border-t border-white/5 pt-12 text-left">
+              <h2 className="text-xl md:text-2xl font-serif text-[#ebd4b3]">Minh bạch tuyệt đối với Mã nguồn công khai</h2>
+              <div className="space-y-4 text-xs md:text-sm text-slate-400 leading-relaxed font-sans font-light">
+                <p>
+                  Một trong những vấn đề lớn nhất của bảo mật là lòng tin. Làm sao bạn biết một ứng dụng thực sự bảo mật mã hóa hay đang âm thầm gửi dữ liệu của bạn về máy chủ của họ? Câu trả lời duy nhất là **Mã nguồn mở công khai**.
+                </p>
+                <p>
+                  Mã nguồn của Dou-Coupl được lưu trữ công khai trên GitHub để bất cứ ai cũng có thể vào xem, kiểm chứng cách ứng dụng xây dựng và chuyển đi gói tin. Các chuyên gia bảo mật và lập trình viên trên toàn thế giới đều có thể đọc qua từng dòng lệnh để đảm bảo ứng dụng không chứa mã độc, không gửi lén thông tin cá nhân và hoạt động đúng theo các nguyên tắc mã hóa đã công bố. Tính riêng tư cần được xây dựng trên sự minh bạch rõ ràng, không phải trên những lời hứa hẹn quảng cáo mơ hồ.
+                </p>
+              </div>
+            </div>
+
+            {/* Step-by-Step Guide for pairings */}
+            <div className="space-y-6 border-t border-white/5 pt-12 text-left">
+              <h2 className="text-xl md:text-2xl font-serif text-[#ebd4b3]">Làm sao để hai bạn kết nối với nhau?</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-xs text-slate-400 font-sans">
+                <div className="space-y-2 bg-white/[0.01] border border-white/5 p-5 rounded-2xl">
+                  <span className="text-lg font-bold text-[#c5a059] font-mono">01</span>
+                  <h4 className="font-semibold text-slate-200">Đăng ký tài khoản cá nhân</h4>
+                  <p className="leading-relaxed font-light">
+                    Mỗi người tạo một tài khoản riêng bằng Email của mình. Ngay khi đăng ký thành công, thiết bị của bạn sẽ tự động tạo ra các bộ khóa mật mã lưu trữ an toàn trong vùng nhớ cục bộ của máy.
+                  </p>
+                </div>
+                <div className="space-y-2 bg-white/[0.01] border border-white/5 p-5 rounded-2xl">
+                  <span className="text-lg font-bold text-[#c5a059] font-mono">02</span>
+                  <h4 className="font-semibold text-slate-200">Gửi lời mời ghép đôi</h4>
+                  <p className="leading-relaxed font-light">
+                    Nhập email của người ấy để gửi yêu cầu ghép đôi. Hệ thống trung gian sẽ giúp hai thiết bị bắt tay, trao đổi chìa khóa mã hóa công khai (Public Key) với nhau một cách an toàn nhất.
+                  </p>
+                </div>
+                <div className="space-y-2 bg-white/[0.01] border border-white/5 p-5 rounded-2xl">
+                  <span className="text-lg font-bold text-[#c5a059] font-mono">03</span>
+                  <h4 className="font-semibold text-slate-200">Bắt đầu không gian lứa đôi</h4>
+                  <p className="leading-relaxed font-light">
+                    Sau khi đối phương chấp nhận lời mời, kênh bí mật đã được thiết lập. Từ đây, tin nhắn, hình ảnh locket, nhắc nhở và đếm ngày kỷ niệm của hai bạn sẽ hoạt động hoàn toàn bảo mật.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Video Tutorial Section */}
+            <div className="space-y-6 border-t border-white/5 pt-12 text-left">
+              <h2 className="text-xl md:text-2xl font-serif text-[#ebd4b3] flex items-center gap-2">
+                <span>🎥</span>
+                <span>Video hướng dẫn chi tiết</span>
+              </h2>
+              <p className="text-xs text-slate-400 max-w-xl leading-relaxed font-sans font-light">
+                Hãy theo dõi video hướng dẫn dưới đây để biết cách đăng ký tài khoản, liên kết Google Drive và thiết lập không gian ghép đôi một cách trực quan nhất.
+              </p>
+              <div className="w-full aspect-video rounded-3xl overflow-hidden border border-white/10 bg-black/40 relative shadow-2xl">
+                <iframe
+                  className="w-full h-full"
+                  src="https://www.youtube.com/embed/njZ_hRffWyM"
+                  title="Dou-Coupl Video Tutorial"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              </div>
+            </div>
+
+            {/* Commit & Status Area */}
+            <div className="bg-white/[0.01] border border-white/5 rounded-3xl p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 font-sans">
+              <div className="space-y-2 text-left">
+                <h4 className="text-xs font-semibold text-slate-200 font-sans">Cam kết phi lợi nhuận lâu dài</h4>
+                <p className="text-xs text-slate-400 max-w-xl leading-relaxed font-light">
+                  Chúng tôi xây dựng <strong>Dou-Coupl</strong> như một món quà dành cho cộng đồng. Ứng dụng hoạt động phi thương mại, không chèn bất kỳ quảng cáo nào và không thu thập bất kỳ dữ liệu cá nhân nào. Các dịch vụ lõi đều chạy trực tiếp trên thiết bị của hai bạn hoặc lưu trữ trên Google Drive cá nhân để đảm bảo ứng dụng có thể hoạt động độc lập và bảo mật trường tồn.
+                </p>
+              </div>
+              <div className="shrink-0 flex items-center gap-2 bg-[#c5a059]/10 border border-[#c5a059]/20 px-4 py-2.5 rounded-2xl text-[10px] font-mono text-[#c5a059] uppercase tracking-wider">
+                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                <span>Hệ thống hoạt động ổn định</span>
+              </div>
+            </div>
+          </main>
+
+          {/* Footer */}
+          <footer className="w-full border-t border-white/5 py-8 mt-12 shrink-0 relative z-10 font-sans">
+            <div className="max-w-4xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-[10px] text-slate-500 font-mono">
+                © 2026 Dou-Coupl. Bản quyền thuộc về cộng đồng nguồn mở.
+              </div>
+              <div className="flex gap-6 text-[10px] text-slate-500 font-mono">
+                <a href="/privacy.html" target="_blank" rel="noopener noreferrer" className="hover:text-[#c5a059] transition-colors">Chính sách bảo mật</a>
+                <span>•</span>
+                <a href="/terms.html" target="_blank" rel="noopener noreferrer" className="hover:text-[#c5a059] transition-colors">Điều khoản dịch vụ</a>
+              </div>
+            </div>
+          </footer>
+        </div>
+      );
+    }
+
     // RENDER SIGN IN / SIGN UP SCREEN
     return (
       <div className="min-h-screen bg-[#080808] font-sans flex items-center justify-center p-4 relative overflow-hidden select-none text-slate-200">
@@ -1224,6 +1471,15 @@ export default function App() {
           animate={{ opacity: 1, y: 0 }}
           className="w-full max-w-md bg-gradient-to-b from-[#111] to-[#0c0c0c] border border-white/5 rounded-3xl p-6.5 md:p-8 shadow-2xl relative z-10 space-y-7"
         >
+          {/* Back to Home Page */}
+          <div className="absolute top-4 left-4 md:top-6 md:left-6">
+            <button
+              onClick={() => { setShowLogin(false); setAuthError(null); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 text-[10px] font-medium transition-all active:scale-95 cursor-pointer"
+            >
+              <span>← Quay lại</span>
+            </button>
+          </div>
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-extralight tracking-wider text-[#c5a059] font-serif">DUO</h1>
             <p className="text-xs text-slate-400 max-w-[280px] mx-auto leading-relaxed">
@@ -1367,6 +1623,16 @@ export default function App() {
           animate={{ opacity: 1, scale: 1 }}
           className="w-full max-w-md bg-gradient-to-b from-[#111] to-[#0c0c0c] border border-white/5 rounded-3xl p-6.5 md:p-8 shadow-2xl relative z-10 space-y-6"
         >
+          {/* Sign Out option */}
+          <div className="absolute top-4 right-4 md:top-6 md:right-6">
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-white/5 border border-white/5 hover:bg-red-500/10 hover:text-red-400 text-[10px] font-medium transition-all active:scale-95 cursor-pointer text-slate-400"
+            >
+              <LogOut className="w-3 h-3" />
+              <span>Đăng xuất</span>
+            </button>
+          </div>
           <div className="text-center space-y-1.5">
             <h2 className="text-lg font-bold text-slate-100 font-serif">Hồ sơ của bạn</h2>
             <p className="text-[10px] text-slate-400">
@@ -1444,6 +1710,16 @@ export default function App() {
           animate={{ opacity: 1, scale: 1 }}
           className="w-full max-w-md bg-gradient-to-b from-[#111] to-[#0c0c0c] border border-white/5 rounded-3xl p-6.5 md:p-8 shadow-2xl relative z-10 space-y-6"
         >
+          {/* Sign Out option */}
+          <div className="absolute top-4 right-4 md:top-6 md:right-6">
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-white/5 border border-white/5 hover:bg-red-500/10 hover:text-red-400 text-[10px] font-medium transition-all active:scale-95 cursor-pointer text-slate-400"
+            >
+              <LogOut className="w-3 h-3" />
+              <span>Đăng xuất</span>
+            </button>
+          </div>
           <div className="text-center space-y-1.5">
             <h2 className="text-lg font-bold text-slate-100 font-serif">Kết nối đôi lứa</h2>
             <p className="text-[10px] text-slate-400">

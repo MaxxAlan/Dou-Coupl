@@ -493,326 +493,334 @@ export default function AnniversaryTab({
 
   return (
     <div className="h-full bg-[#080808] font-sans text-slate-100 flex flex-col overflow-hidden relative">
-      <div className="flex-1 overflow-y-auto p-5 space-y-6 pb-24 scrollbar-thin scrollbar-thumb-slate-800">
-        
-        {/* Days Together Counter Hero Section */}
-        <div className="relative rounded-3xl overflow-hidden border border-[#c5a059]/20 bg-gradient-to-b from-[#16120c] to-[#0d0d0d] p-6 flex flex-col items-center justify-center text-center shadow-lg">
-          {/* Floating animated hearts */}
-          <motion.div
-            animate={{ scale: [1, 1.1, 1], rotate: [0, 3, -3, 0] }}
-            transition={{ repeat: Infinity, duration: 4 }}
-            className="w-12 h-12 rounded-full bg-[#c5a059]/10 flex items-center justify-center text-[#c5a059] mb-3 border border-[#c5a059]/20"
-          >
-            <Heart className="w-5 h-5 fill-[#c5a059]" />
-          </motion.div>
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 scrollbar-thin scrollbar-thumb-slate-800">
+        <div className="max-w-6xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          
+          {/* Left Column - Dashboard Widgets */}
+          <div className="lg:col-span-7 space-y-6 w-full">
+            {/* Days Together Counter Hero Section */}
+            <div className="relative rounded-3xl overflow-hidden border border-[#c5a059]/20 bg-gradient-to-b from-[#16120c] to-[#0d0d0d] p-6 md:p-8 flex flex-col items-center justify-center text-center shadow-lg">
+              {/* Floating animated hearts */}
+              <motion.div
+                animate={{ scale: [1, 1.1, 1], rotate: [0, 3, -3, 0] }}
+                transition={{ repeat: Infinity, duration: 4 }}
+                className="w-12 h-12 rounded-full bg-[#c5a059]/10 flex items-center justify-center text-[#c5a059] mb-3 border border-[#c5a059]/20"
+              >
+                <Heart className="w-5 h-5 fill-[#c5a059]" />
+              </motion.div>
 
-          <p className="text-[9px] font-mono tracking-[0.25em] text-[#c5a059] uppercase">CHÚNG TA ĐÃ BÊN NHAU</p>
-          <h1 className="text-4xl font-light tracking-tight mt-1 text-slate-100 flex items-baseline gap-1.5 font-serif">
-            <span className="text-[#c5a059] font-medium">{daysTogether.toLocaleString()}</span>
-            <span className="text-sm font-light text-slate-400 italic">ngày hạnh phúc</span>
-          </h1>
+              <p className="text-[9px] md:text-[10.5px] font-mono tracking-[0.25em] text-[#c5a059] uppercase">CHÚNG TA ĐÃ BÊN NHAU</p>
+              <h1 className="text-4xl md:text-5xl font-light tracking-tight mt-1 text-slate-100 flex items-baseline gap-1.5 font-serif">
+                <span className="text-[#c5a059] font-medium">{daysTogether.toLocaleString()}</span>
+                <span className="text-sm md:text-base font-light text-slate-400 italic">ngày hạnh phúc</span>
+              </h1>
 
-          {/* Edit Date Indicator */}
-          <div className="mt-4 flex items-center gap-2">
-            {!isEditing ? (
-              <>
-                <Calendar className="w-3 h-3 text-slate-500" />
-                <span className="text-[10px] text-slate-400 font-mono">Khởi đầu: {new Date(anniversaryDate).toLocaleDateString('vi-VN')}</span>
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="p-1 text-slate-500 hover:text-[#c5a059] rounded transition-colors cursor-pointer"
-                >
-                  <Edit2 className="w-3 h-3" />
-                </button>
-              </>
-            ) : (
-              <div className="flex items-center gap-1.5 bg-black p-1.5 rounded-xl border border-white/5">
-                <input
-                  type="date"
-                  value={inputDate}
-                  onChange={e => setInputDate(e.target.value)}
-                  className="bg-transparent border-none text-[10px] text-slate-100 focus:outline-none focus:ring-0 p-0 font-mono"
-                />
-                <button
-                  onClick={handleSaveDate}
-                  className="p-1 rounded bg-[#c5a059]/20 text-[#c5a059] hover:bg-[#c5a059]/30 cursor-pointer"
-                >
-                  <Check className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Locket Polaroid Widget (Component 3) */}
-        <div className="bg-[#0e0e0e]/40 border border-white/5 p-5 rounded-3xl flex flex-col gap-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-1.5 text-slate-300">
-              <ImageIcon className="w-4 h-4 text-[#c5a059]" />
-              <h3 className="text-xs font-semibold font-sans tracking-wide">Khoảnh khắc Locket lứa đôi</h3>
-            </div>
-            <button
-              onClick={() => {
-                setCapturedImage(null);
-                setLocketCaption('');
-                setShowCameraModal(true);
-              }}
-              className="px-3.5 py-1.5 bg-[#c5a059] hover:bg-[#b08b47] text-black font-semibold text-[10px] rounded-full transition-colors flex items-center gap-1 cursor-pointer"
-            >
-              <Camera className="w-3.5 h-3.5" />
-              <span>Gửi Locket</span>
-            </button>
-          </div>
-
-          {/* Polaroid Frame */}
-          <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl flex flex-col items-center shadow-lg relative max-w-[280px] mx-auto w-full group">
-            {isDecrypting ? (
-              <div className="aspect-square w-full rounded-lg bg-black/40 flex flex-col items-center justify-center text-slate-500 font-mono text-[9px] uppercase tracking-wider gap-2">
-                <Loader2 className="w-5 h-5 text-[#c5a059] animate-spin" />
-                <span>Đang giải mã Locket...</span>
-              </div>
-            ) : decryptedPhoto === 'LOCKED_DRIVE' ? (
-              <div className="aspect-square w-full rounded-lg bg-black/40 flex flex-col items-center justify-center text-center p-6 text-slate-500 gap-2">
-                <HardDrive className="w-8 h-8 text-[#c5a059] animate-bounce" />
-                <h5 className="text-[10px] font-semibold text-slate-400">Yêu cầu kết nối Drive</h5>
-                <p className="text-[8.5px] text-slate-600 max-w-[150px] leading-normal font-sans">
-                  Vui lòng kết nối Google Drive ở tab Bảo mật để tải ảnh Locket của bạn.
-                </p>
-              </div>
-            ) : decryptedPhoto ? (
-              <div className="w-full space-y-4">
-                {/* Image container */}
-                <div className="aspect-square w-full rounded-lg overflow-hidden border border-white/5 bg-black relative">
-                  <img
-                    src={decryptedPhoto}
-                    alt="Latest Partner Locket"
-                    className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-300"
-                  />
-                  {/* Polaroid tape effect */}
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-4 bg-white/10 backdrop-blur-sm border-x border-white/5 rotate-[-2deg]" />
-                </div>
-                {/* Caption / Signature */}
-                <div className="text-center font-serif italic text-slate-300 text-xs px-2 pt-1 min-h-[20px] tracking-wide break-words">
-                  {decryptedCaption || "Gửi một chút ngọt ngào... 💕"}
-                </div>
-                <div className="text-center text-[8px] font-mono text-slate-500 tracking-wider">
-                  Gửi bởi {latestPartnerPhoto?.senderId === 'A' ? partnerA.name : partnerB.name} · {new Date(latestPartnerPhoto?.timestamp || 0).toLocaleDateString('vi-VN')}
-                </div>
-              </div>
-            ) : (
-              <div className="aspect-square w-full rounded-lg bg-black/40 border border-dashed border-white/10 flex flex-col items-center justify-center text-center p-6 text-slate-500 gap-2">
-                <Camera className="w-8 h-8 text-slate-600 animate-pulse" />
-                <h5 className="text-[10px] font-semibold text-slate-400">Chưa có ảnh Locket nào</h5>
-                <p className="text-[8.5px] text-slate-600 max-w-[150px] leading-normal font-sans">
-                  Chụp ảnh và chia sẻ ngay khoảnh khắc hiện tại của bạn cho đối phương!
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Partner Connect Visual representation */}
-        <div className="grid grid-cols-3 items-center px-4">
-          <div className="flex flex-col items-center space-y-1.5">
-            <div className="w-14 h-14 rounded-full overflow-hidden border border-[#c5a059]/30 p-0.5 shadow-md bg-white/[0.02]">
-              <img src={partnerA.avatar} alt={partnerA.name} className="w-full h-full object-cover rounded-full" referrerPolicy="no-referrer" />
-            </div>
-            <span className="text-xs font-medium text-slate-300">{partnerA.name}</span>
-          </div>
-
-          <div className="flex justify-center">
-            <div className="relative w-full flex items-center justify-center">
-              <div className="absolute w-full h-[1px] bg-white/5 border-dashed border-t border-slate-700" />
-              <div className="z-10 w-8 h-8 rounded-full bg-[#0d0d0d] border border-white/5 flex items-center justify-center">
-                <Heart className="w-4 h-4 text-[#c5a059] fill-[#c5a059] animate-pulse" />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col items-center space-y-1.5">
-            <div className="w-14 h-14 rounded-full overflow-hidden border border-[#c5a059]/30 p-0.5 shadow-md bg-white/[0.02]">
-              <img src={partnerB.avatar} alt={partnerB.name} className="w-full h-full object-cover rounded-full" referrerPolicy="no-referrer" />
-            </div>
-            <span className="text-xs font-medium text-slate-300">{partnerB.name}</span>
-          </div>
-        </div>
-
-        {/* ACTIVE REMINDERS WIDGET */}
-        {upcomingReminders.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="rounded-2xl border border-[#c5a059]/40 bg-[#c5a059]/5 p-4.5 space-y-3 shadow-md"
-          >
-            <div className="flex items-center gap-2 text-[#c5a059]">
-              <Bell className="w-4 h-4 animate-bounce" />
-              <h3 className="text-xs font-mono font-bold uppercase tracking-wider">NHẮC NHỞ NGÀY KỶ NIỆM SẮP TỚI</h3>
-            </div>
-            <div className="space-y-2">
-              {upcomingReminders.map(anniv => (
-                <div 
-                  key={anniv.id} 
-                  className="flex items-center justify-between text-xs bg-black/40 p-2.5 rounded-xl border border-white/5"
-                >
-                  <div className="flex flex-col">
-                    <span className="font-medium text-slate-200">{anniv.title}</span>
-                    <span className="text-[10px] text-slate-500 font-mono mt-0.5">
-                      Ngày: {new Date(anniv.date).toLocaleDateString('vi-VN')}
-                    </span>
+              {/* Edit Date Indicator */}
+              <div className="mt-4 flex items-center gap-2">
+                {!isEditing ? (
+                  <>
+                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="text-[10px] md:text-[12px] text-slate-400 font-mono">Khởi đầu: {new Date(anniversaryDate).toLocaleDateString('vi-VN')}</span>
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="p-1 text-slate-500 hover:text-[#c5a059] rounded transition-colors cursor-pointer"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-1.5 bg-black p-1.5 rounded-xl border border-white/5">
+                    <input
+                      type="date"
+                      value={inputDate}
+                      onChange={e => setInputDate(e.target.value)}
+                      className="bg-transparent border-none text-[10px] md:text-[12px] text-slate-100 focus:outline-none focus:ring-0 p-0 font-mono"
+                    />
+                    <button
+                      onClick={handleSaveDate}
+                      className="p-1 rounded bg-[#c5a059]/20 text-[#c5a059] hover:bg-[#c5a059]/30 cursor-pointer"
+                    >
+                      <Check className="w-3 h-3" />
+                    </button>
                   </div>
-                  <div>
-                    {anniv.countdown.isToday ? (
-                      <span className="text-[10px] font-semibold bg-rose-500/20 text-rose-400 py-1 px-2.5 rounded-full border border-rose-500/20 animate-pulse uppercase tracking-wide">
-                        Hôm Nay 🎉
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-medium bg-[#c5a059]/20 text-[#ebd4b3] py-1 px-2.5 rounded-full border border-[#c5a059]/20">
-                        Còn {anniv.countdown.daysLeft} ngày
-                      </span>
-                    )}
+                )}
+              </div>
+            </div>
+
+            {/* Locket Polaroid Widget (Component 3) */}
+            <div className="bg-[#0e0e0e]/40 border border-white/5 p-5 rounded-3xl flex flex-col gap-4">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <ImageIcon className="w-4.5 h-4.5 text-[#c5a059]" />
+                  <h3 className="text-xs md:text-sm font-semibold font-sans tracking-wide">Khoảnh khắc Locket lứa đôi</h3>
+                </div>
+                <button
+                  onClick={() => {
+                    setCapturedImage(null);
+                    setLocketCaption('');
+                    setShowCameraModal(true);
+                  }}
+                  className="px-3.5 py-1.5 bg-[#c5a059] hover:bg-[#b08b47] text-black font-semibold text-[10px] md:text-xs rounded-full transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Gửi Locket</span>
+                </button>
+              </div>
+
+              {/* Polaroid Frame */}
+              <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl flex flex-col items-center shadow-lg relative max-w-[280px] md:max-w-[320px] mx-auto w-full group">
+                {isDecrypting ? (
+                  <div className="aspect-square w-full rounded-lg bg-black/40 flex flex-col items-center justify-center text-slate-500 font-mono text-[9px] md:text-[10px] uppercase tracking-wider gap-2">
+                    <Loader2 className="w-5 h-5 text-[#c5a059] animate-spin" />
+                    <span>Đang giải mã Locket...</span>
+                  </div>
+                ) : decryptedPhoto === 'LOCKED_DRIVE' ? (
+                  <div className="aspect-square w-full rounded-lg bg-black/40 flex flex-col items-center justify-center text-center p-6 text-slate-500 gap-2">
+                    <HardDrive className="w-8 h-8 text-[#c5a059] animate-bounce" />
+                    <h5 className="text-[10px] md:text-[12px] font-semibold text-slate-400">Yêu cầu kết nối Drive</h5>
+                    <p className="text-[8.5px] md:text-[10px] text-slate-600 max-w-[150px] md:max-w-[180px] leading-normal font-sans">
+                      Vui lòng kết nối Google Drive ở tab Bảo mật để tải ảnh Locket của bạn.
+                    </p>
+                  </div>
+                ) : decryptedPhoto ? (
+                  <div className="w-full space-y-4">
+                    {/* Image container */}
+                    <div className="aspect-square w-full rounded-lg overflow-hidden border border-white/5 bg-black relative">
+                      <img
+                        src={decryptedPhoto}
+                        alt="Latest Partner Locket"
+                        className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-300"
+                      />
+                      {/* Polaroid tape effect */}
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-4 bg-white/10 backdrop-blur-sm border-x border-white/5 rotate-[-2deg]" />
+                    </div>
+                    {/* Caption / Signature */}
+                    <div className="text-center font-serif italic text-slate-300 text-xs md:text-sm px-2 pt-1 min-h-[20px] tracking-wide break-words">
+                      {decryptedCaption || "Gửi một chút ngọt ngào... 💕"}
+                    </div>
+                    <div className="text-center text-[8px] md:text-[9.5px] font-mono text-slate-500 tracking-wider">
+                      Gửi bởi {latestPartnerPhoto?.senderId === 'A' ? partnerA.name : partnerB.name} · {new Date(latestPartnerPhoto?.timestamp || 0).toLocaleDateString('vi-VN')}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="aspect-square w-full rounded-lg bg-black/40 border border-dashed border-white/10 flex flex-col items-center justify-center text-center p-6 text-slate-500 gap-2">
+                    <Camera className="w-8 h-8 text-slate-600 animate-pulse" />
+                    <h5 className="text-[10px] md:text-[12px] font-semibold text-slate-400">Chưa có ảnh Locket nào</h5>
+                    <p className="text-[8.5px] md:text-[10px] text-slate-600 max-w-[150px] md:max-w-[180px] leading-normal font-sans">
+                      Chụp ảnh và chia sẻ ngay khoảnh khắc hiện tại của bạn cho đối phương!
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Partner Connect Visual representation */}
+            <div className="grid grid-cols-3 items-center px-4">
+              <div className="flex flex-col items-center space-y-1.5">
+                <div className="w-14 h-14 md:w-16 md:h-16 rounded-full overflow-hidden border border-[#c5a059]/30 p-0.5 shadow-md bg-white/[0.02]">
+                  <img src={partnerA.avatar} alt={partnerA.name} className="w-full h-full object-cover rounded-full" referrerPolicy="no-referrer" />
+                </div>
+                <span className="text-xs md:text-sm font-medium text-slate-300">{partnerA.name}</span>
+              </div>
+
+              <div className="flex justify-center">
+                <div className="relative w-full flex items-center justify-center">
+                  <div className="absolute w-full h-[1px] bg-white/5 border-dashed border-t border-slate-700" />
+                  <div className="z-10 w-8 h-8 rounded-full bg-[#0d0d0d] border border-white/5 flex items-center justify-center">
+                    <Heart className="w-4 h-4 text-[#c5a059] fill-[#c5a059] animate-pulse" />
                   </div>
                 </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
+              </div>
 
-        {/* Next Countdown card */}
-        <div className="bg-white/[0.02] border border-white/5 p-4.5 rounded-2xl flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/5 flex items-center justify-center text-slate-300">
-              <Hourglass className="w-5 h-5 text-[#c5a059]" />
-            </div>
-            <div>
-              <h4 className="text-xs font-medium text-slate-100">{nextAnniversaryText}</h4>
-              <p className="text-[10px] text-slate-500 mt-0.5">Thời gian trôi đi thật ý nghĩa</p>
-            </div>
-          </div>
-          <div className="text-right">
-            <span className="text-xl font-bold text-[#c5a059] font-serif">{daysRemaining}</span>
-            <p className="text-[9px] text-slate-500 font-mono mt-0.5">ngày nữa</p>
-          </div>
-        </div>
-
-        {/* AI suggestions matching the days */}
-        <div className="space-y-3.5 bg-gradient-to-b from-[#0a0a0a] to-[#0c0c0c] border border-white/5 rounded-3xl p-5 shadow-inner">
-          <div className="flex items-center justify-between text-slate-300">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[#c5a059] animate-pulse" />
-              <h3 className="text-xs font-semibold font-sans tracking-wide">Ý tưởng lãng mạn từ AI</h3>
-            </div>
-            <button
-              onClick={fetchAiSuggestions}
-              disabled={isLoadingAi}
-              className="p-1 rounded bg-white/[0.03] border border-white/10 text-slate-400 hover:text-slate-200 cursor-pointer disabled:opacity-50"
-              title="Tải lại ý tưởng"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAi ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-
-          {isLoadingAi ? (
-            <div className="py-8 flex flex-col items-center justify-center text-center gap-2">
-              <Loader2 className="w-6 h-6 text-[#c5a059] animate-spin" />
-              <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">Đang tham vấn trí tuệ nhân tạo...</p>
-            </div>
-          ) : (
-            <>
-              {aiError && (
-                <div className="bg-[#c5a059]/10 border border-[#c5a059]/20 rounded-xl p-2.5 flex items-start gap-2 text-[10px] text-[#ebd4b3] font-sans">
-                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#c5a059]" />
-                  <span className="leading-normal">{aiError}</span>
+              <div className="flex flex-col items-center space-y-1.5">
+                <div className="w-14 h-14 md:w-16 md:h-16 rounded-full overflow-hidden border border-[#c5a059]/30 p-0.5 shadow-md bg-white/[0.02]">
+                  <img src={partnerB.avatar} alt={partnerB.name} className="w-full h-full object-cover rounded-full" referrerPolicy="no-referrer" />
                 </div>
-              )}
-              
-              <ul className="space-y-3">
-                {aiIdeas.map((idea, idx) => (
-                  <motion.li
-                    key={idx}
-                    initial={{ opacity: 0, x: -5 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: idx * 0.1 }}
-                    className="flex gap-2.5 items-start text-xs text-slate-300 leading-relaxed group"
-                  >
-                    <span className="text-[#c5a059] font-mono select-none mt-0.5 group-hover:scale-110 transition-transform">0{idx + 1}.</span>
-                    <span>{idea}</span>
-                  </motion.li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-
-        {/* Special Anniversary dates timeline */}
-        <div className="space-y-3.5">
-          <div className="flex justify-between items-center text-slate-300">
-            <div className="flex items-center gap-2">
-              <CalendarCheck2 className="w-4 h-4 text-[#c5a059]" />
-              <h3 className="text-xs font-semibold font-sans tracking-wide">Mốc kỷ niệm lứa đôi</h3>
+                <span className="text-xs md:text-sm font-medium text-slate-300">{partnerB.name}</span>
+              </div>
             </div>
-            <button
-              onClick={() => setIsAddingAnniv(true)}
-              className="p-1 bg-[#c5a059] hover:bg-[#b08b47] text-black rounded-lg cursor-pointer flex items-center justify-center"
-              title="Thêm kỷ niệm mới"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </div>
 
-          {allAnniversariesSorted.length === 0 ? (
-            <div className="bg-white/[0.01] border border-dashed border-white/5 rounded-2xl p-6 text-center text-slate-500 text-xs">
-              Chưa thiết lập mốc kỷ niệm riêng nào. Ấn nút (+) ở góc để thêm mới nhé!
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {allAnniversariesSorted.map(anniv => (
-                <div 
-                  key={anniv.id}
-                  className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col gap-3.5 hover:border-white/10 transition-colors relative"
+            {/* AI suggestions matching the days */}
+            <div className="space-y-3.5 bg-gradient-to-b from-[#0a0a0a] to-[#0c0c0c] border border-white/5 rounded-3xl p-5 shadow-inner">
+              <div className="flex items-center justify-between text-slate-300">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4.5 h-4.5 text-[#c5a059] animate-pulse" />
+                  <h3 className="text-xs md:text-sm font-semibold font-sans tracking-wide">Ý tưởng lãng mạn từ AI</h3>
+                </div>
+                <button
+                  onClick={fetchAiSuggestions}
+                  disabled={isLoadingAi}
+                  className="p-1 rounded bg-white/[0.03] border border-white/10 text-slate-400 hover:text-slate-200 cursor-pointer disabled:opacity-50"
+                  title="Tải lại ý tưởng"
                 >
-                  <button
-                    onClick={() => onDeleteSpecialAnniversary(anniv.id)}
-                    className="absolute top-4 right-4 p-1.5 rounded-lg bg-white/[0.02] border border-white/5 text-slate-500 hover:text-red-400 cursor-pointer"
-                    title="Xóa kỷ niệm"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAi ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
 
-                  <div className="flex gap-3">
-                    {anniv.photo ? (
-                      <button 
-                        onClick={() => setLightboxPhoto({ src: anniv.photo, title: anniv.title })}
-                        className="w-16 h-16 rounded-xl overflow-hidden border border-white/5 shrink-0 cursor-pointer bg-black"
+              {isLoadingAi ? (
+                <div className="py-8 flex flex-col items-center justify-center text-center gap-2">
+                  <Loader2 className="w-6 h-6 text-[#c5a059] animate-spin" />
+                  <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">Đang tham vấn trí tuệ nhân tạo...</p>
+                </div>
+              ) : (
+                <>
+                  {aiError && (
+                    <div className="bg-[#c5a059]/10 border border-[#c5a059]/20 rounded-xl p-2.5 flex items-start gap-2 text-[10px] md:text-xs text-[#ebd4b3] font-sans">
+                      <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#c5a059]" />
+                      <span className="leading-normal">{aiError}</span>
+                    </div>
+                  )}
+                  
+                  <ul className="space-y-3">
+                    {aiIdeas.map((idea, idx) => (
+                      <motion.li
+                        key={idx}
+                        initial={{ opacity: 0, x: -5 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.1 }}
+                        className="flex gap-2.5 items-start text-xs md:text-sm text-slate-300 leading-relaxed group"
                       >
-                        <img src={anniv.photo} alt={anniv.title} className="w-full h-full object-cover" />
-                      </button>
-                    ) : (
-                      <div className="w-16 h-16 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-center shrink-0 text-slate-600">
-                        <Heart className="w-6 h-6" />
+                        <span className="text-[#c5a059] font-mono select-none mt-0.5 group-hover:scale-110 transition-transform">0{idx + 1}.</span>
+                        <span>{idea}</span>
+                      </motion.li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column - Milestones & Alerts */}
+          <div className="lg:col-span-5 space-y-6 w-full">
+            {/* ACTIVE REMINDERS WIDGET */}
+            {upcomingReminders.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border border-[#c5a059]/40 bg-[#c5a059]/5 p-4.5 space-y-3 shadow-md"
+              >
+                <div className="flex items-center gap-2 text-[#c5a059]">
+                  <Bell className="w-4 h-4 animate-bounce" />
+                  <h3 className="text-xs md:text-sm font-mono font-bold uppercase tracking-wider">NHẮC NHỞ NGÀY KỶ NIỆM SẮP TỚI</h3>
+                </div>
+                <div className="space-y-2">
+                  {upcomingReminders.map(anniv => (
+                    <div 
+                      key={anniv.id} 
+                      className="flex items-center justify-between text-xs md:text-sm bg-black/40 p-2.5 rounded-xl border border-white/5"
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-medium text-slate-200">{anniv.title}</span>
+                        <span className="text-[10px] md:text-xs text-slate-500 font-mono mt-0.5">
+                          Ngày: {new Date(anniv.date).toLocaleDateString('vi-VN')}
+                        </span>
                       </div>
-                    )}
-                    
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <h4 className="text-xs font-semibold text-slate-100">{anniv.title}</h4>
-                        {anniv.countdown.isToday && (
-                          <span className="text-[8px] font-semibold bg-rose-500/20 text-rose-400 py-0.5 px-2 rounded-full border border-rose-500/20 uppercase animate-pulse">
-                            Hôm nay 🎉
+                      <div>
+                        {anniv.countdown.isToday ? (
+                          <span className="text-[10px] md:text-xs font-semibold bg-rose-500/20 text-rose-400 py-1 px-2.5 rounded-full border border-rose-500/20 animate-pulse uppercase tracking-wide">
+                            Hôm Nay 🎉
+                          </span>
+                        ) : (
+                          <span className="text-[10px] md:text-xs font-medium bg-[#c5a059]/20 text-[#ebd4b3] py-1 px-2.5 rounded-full border border-[#c5a059]/20">
+                            Còn {anniv.countdown.daysLeft} ngày
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] text-slate-500 font-mono">
-                        {new Date(anniv.date).toLocaleDateString('vi-VN')}
-                      </p>
-                      {anniv.notes && (
-                        <p className="text-[10.5px] text-slate-400 leading-normal line-clamp-2">{anniv.notes}</p>
-                      )}
                     </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
+              </motion.div>
+            )}
+
+            {/* Next Countdown card */}
+            <div className="bg-white/[0.02] border border-white/5 p-4.5 rounded-2xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/5 flex items-center justify-center text-slate-300">
+                  <Hourglass className="w-5 h-5 text-[#c5a059]" />
+                </div>
+                <div>
+                  <h4 className="text-xs md:text-sm font-medium text-slate-100">{nextAnniversaryText}</h4>
+                  <p className="text-[10px] md:text-xs text-slate-500 mt-0.5">Thời gian trôi đi thật ý nghĩa</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-xl md:text-2xl font-bold text-[#c5a059] font-serif">{daysRemaining}</span>
+                <p className="text-[9px] md:text-[10.5px] text-slate-500 font-mono mt-0.5">ngày nữa</p>
+              </div>
             </div>
-          )}
+
+            {/* Special Anniversary dates timeline */}
+            <div className="space-y-3.5">
+              <div className="flex justify-between items-center text-slate-300">
+                <div className="flex items-center gap-2">
+                  <CalendarCheck2 className="w-4 h-4 text-[#c5a059]" />
+                  <h3 className="text-xs md:text-sm font-semibold font-sans tracking-wide">Mốc kỷ niệm lứa đôi</h3>
+                </div>
+                <button
+                  onClick={() => setIsAddingAnniv(true)}
+                  className="p-1 bg-[#c5a059] hover:bg-[#b08b47] text-black rounded-lg cursor-pointer flex items-center justify-center"
+                  title="Thêm kỷ niệm mới"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {allAnniversariesSorted.length === 0 ? (
+                <div className="bg-white/[0.01] border border-dashed border-white/5 rounded-2xl p-6 text-center text-slate-500 text-xs md:text-sm">
+                  Chưa thiết lập mốc kỷ niệm riêng nào. Ấn nút (+) ở góc để thêm mới nhé!
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {allAnniversariesSorted.map(anniv => (
+                    <div 
+                      key={anniv.id}
+                      className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col gap-3.5 hover:border-white/10 transition-colors relative"
+                    >
+                      <button
+                        onClick={() => onDeleteSpecialAnniversary(anniv.id)}
+                        className="absolute top-4 right-4 p-1.5 rounded-lg bg-white/[0.02] border border-white/5 text-slate-500 hover:text-red-400 cursor-pointer"
+                        title="Xóa kỷ niệm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+
+                      <div className="flex gap-3">
+                        {anniv.photo ? (
+                          <button 
+                            onClick={() => setLightboxPhoto({ src: anniv.photo, title: anniv.title })}
+                            className="w-16 h-16 rounded-xl overflow-hidden border border-white/5 shrink-0 cursor-pointer bg-black"
+                          >
+                            <img src={anniv.photo} alt={anniv.title} className="w-full h-full object-cover" />
+                          </button>
+                        ) : (
+                          <div className="w-16 h-16 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-center shrink-0 text-slate-600">
+                            <Heart className="w-6 h-6" />
+                          </div>
+                        )}
+                        
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="text-xs md:text-sm font-semibold text-slate-100">{anniv.title}</h4>
+                            {anniv.countdown.isToday && (
+                              <span className="text-[8px] font-semibold bg-rose-500/20 text-rose-400 py-0.5 px-2 rounded-full border border-rose-500/20 uppercase animate-pulse">
+                                Hôm nay 🎉
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] md:text-xs text-slate-500 font-mono">
+                            {new Date(anniv.date).toLocaleDateString('vi-VN')}
+                          </p>
+                          {anniv.notes && (
+                            <p className="text-[10.5px] md:text-xs text-slate-400 leading-normal line-clamp-2">{anniv.notes}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

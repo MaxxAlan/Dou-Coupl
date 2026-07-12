@@ -9,7 +9,7 @@ interface PasscodeLockProps {
   isSettingMode?: boolean;
   onSetPasscodeComplete?: (pin: string) => void;
   onCancelSetting?: () => void;
-  onVerifyPasscode?: (pin: string) => Promise<boolean>;
+  onVerifyPasscode?: (pin: string) => Promise<boolean | { valid: boolean; message?: string; locked?: boolean }>;
 }
 
 export default function PasscodeLock({
@@ -24,6 +24,7 @@ export default function PasscodeLock({
   const [stage, setStage] = useState<'enter' | 'confirm'>(isSettingMode ? 'enter' : 'enter');
   const [firstPin, setFirstPin] = useState<string>('');
   const [error, setError] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isScanningFace, setIsScanningFace] = useState<boolean>(false);
   const [scanSuccess, setScanSuccess] = useState<boolean>(false);
   const [webAuthnError, setWebAuthnError] = useState<string | null>(null);
@@ -55,11 +56,16 @@ export default function PasscodeLock({
       } else {
         // Unlocking mode
         if (onVerifyPasscode) {
-          onVerifyPasscode(pin).then(isValid => {
+          onVerifyPasscode(pin).then(res => {
+            const isValid = typeof res === 'boolean' ? res : res.valid;
+            const msg = typeof res === 'boolean' ? null : res.message;
             if (isValid) {
               onUnlock();
             } else {
               setError(true);
+              if (msg) {
+                setErrorMessage(msg);
+              }
               setTimeout(() => {
                 setError(false);
                 setPin('');
@@ -87,6 +93,9 @@ export default function PasscodeLock({
   }, [pin, correctPasscode, isSettingMode, stage, firstPin, onUnlock, onSetPasscodeComplete, onVerifyPasscode]);
 
   const handleKeyPress = (num: string) => {
+    if (pin.length === 0) {
+      setErrorMessage(null);
+    }
     if (pin.length < 4) {
       setPin(prev => prev + num);
     }
@@ -203,6 +212,16 @@ export default function PasscodeLock({
               : 'Nhập lại mã khoá vừa tạo'
             : 'Nhập mã khoá để tiếp tục hâm nóng tình cảm'}
         </p>
+
+        {errorMessage && (
+          <motion.p
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-[11px] text-red-400 mt-3 text-center max-w-[240px] font-sans leading-normal"
+          >
+            {errorMessage}
+          </motion.p>
+        )}
 
         {/* Pin Dots Indicators */}
         <div className="flex gap-4 mt-8">

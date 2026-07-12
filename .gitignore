@@ -9,3 +9,5 @@ coverage/
 db.json
 github-action-key.json
 .firebase/
+logs/
+email_logs.txt
